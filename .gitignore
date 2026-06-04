@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# YOLO / Ultralytics
+runs/
+weights/
+datasets/
+labels.cache
+*.cache
+
+# Model artifacts and exports
+*.pt
+*.pth
+*.onnx
+*.engine
+*.tflite
+*.pb
+*.xml
+*.mlmodel
