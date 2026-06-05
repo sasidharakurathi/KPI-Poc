@@ -37,7 +37,6 @@ class MobileUsageKPI(BaseKPI):
         device = settings.DEVICE
         half   = settings.USE_HALF and device != "cpu"
 
-        # ── Parameters from config.json (with fallbacks) ──────────────────
         person_model_path = self._get("person_model_path",  _DEFAULT_PERSON_MODEL_PATH)
         phone_model_path  = self._get("phone_model_path",   _DEFAULT_PHONE_MODEL_PATH)
         person_conf       = self._get("person_confidence",  _DEFAULT_PERSON_CONF)
@@ -59,12 +58,6 @@ class MobileUsageKPI(BaseKPI):
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         hold_frames  = int(usage_hold_secs * fps)
 
-        # ── Per-track state ───────────────────────────────────────────────
-        # usage_votes     : sliding window of phone_confirmed booleans
-        # session_start   : frame_count when the current usage session began (None = not active)
-        # display_secs    : frozen display value; 0.0 until first session, resets each new session
-        # last_stable_frame: last frame_count where stable_usage was True (drives hold window)
-        # prev_stable     : stable_usage from previous frame
         usage_votes:       dict[int, deque]      = {}
         session_start:     dict[int, int | None] = {}
         display_secs:      dict[int, float]      = {}
@@ -158,16 +151,19 @@ class MobileUsageKPI(BaseKPI):
                     stable_usage   = positive_votes >= vote_required
                     was_stable     = prev_stable[track_id]
 
-                    # Timer logic
                     if stable_usage:
                         last_stable_frame[track_id] = frame_count
                         if not was_stable:
                             session_start[track_id] = frame_count
                             display_secs[track_id]  = 0.0
                             if job_id:
+                                alert_dets = list(detections) + [
+                                    Detection(x1, y1, x2, y2, f"ID {track_id}", 1.0, color=COLOR_PERSON)
+                                ]
                                 self._save_alert(
                                     frame, "phone_usage_confirmed", job_id, frame_count,
                                     extra={"track_id": track_id, "votes": positive_votes},
+                                    detections=alert_dets,
                                 )
                         else:
                             display_secs[track_id] = (frame_count - session_start[track_id]) / fps

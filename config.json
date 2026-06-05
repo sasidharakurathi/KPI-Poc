@@ -54,7 +54,7 @@
 
     "MobileUsageKPI": {
         "enabled": true,
-        "person_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\mobile-person-usage.pt",
+        "person_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\yolo26s.pt",
         "phone_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\mobile-phone-usage.pt",
         "person_confidence": 0.5,
         "phone_confidence": 0.30,

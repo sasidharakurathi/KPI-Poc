@@ -88,6 +88,7 @@ class FireSmokeKPI(BaseKPI):
                         self._save_alert(
                             frame, "smoke_alarm", job_id, frame_idx,
                             extra={"persistence": smoke_persistence},
+                            detections=detections,
                         )
             else:
                 smoke_persistence = max(0, smoke_persistence - 1)
@@ -109,6 +110,7 @@ class FireSmokeKPI(BaseKPI):
                         self._save_alert(
                             frame, "fire_detected", job_id, frame_idx,
                             confidence=fire_conf_val,
+                            detections=detections,
                         )
             elif fire_alarm_active and (frame_idx - last_fire_frame) > hold_frames:
                 fire_alarm_active = False
