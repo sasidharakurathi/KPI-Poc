@@ -28,11 +28,17 @@ labels.cache
 *.cache
 
 # Model artifacts and exports
-*.pt
-*.pth
+# *.pt
+# *.pth
 *.onnx
 *.engine
 *.tflite
 *.pb
 *.xml
 *.mlmodel
+.memory
+resources/
+.env
+.*.env
+storage/
+.claude

@@ -1,0 +1,15 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+ultralytics>=8.2.0
+opencv-python>=4.9.0
+lap>=0.5.12
+
+# ── GPU (CUDA 12.6) ──────────────────────────────────────────────────────────
+# Install these from the PyTorch CUDA index — the plain PyPI builds are CPU-only.
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+torch>=2.2.0
+torchvision>=0.17.0
+dotenv

@@ -1,0 +1,69 @@
+{
+    "kpi_registry": {
+        "7":  "fire_smoke",
+        "17": "mobile_usage"
+    },
+
+    "cameras": {
+        "CAM-01": {"name": "WHEEL HOUSE",                        "zone": "bridge",  "priority": "critical", "kpi_ids": [1,7,10,11,13,16,17,20]},
+        "CAM-02": {"name": "WHEEL HOUSE",                        "zone": "bridge",  "priority": "high",     "kpi_ids": [1,7,10,11,13,16,17,20]},
+        "CAM-03": {"name": "RADAR MAST FOR HELIDECK",            "zone": "deck",    "priority": "medium",   "kpi_ids": [1,7,8,11,16,28]},
+        "CAM-04": {"name": "TOP OF WHEEL HOUSE FOR LEG 3",       "zone": "deck",    "priority": "critical", "kpi_ids": [1,6,7,18,20,29,30]},
+        "CAM-05": {"name": "TOP OF WHEEL HOUSE FOR LEG 4",       "zone": "deck",    "priority": "high",     "kpi_ids": [1,6,7,18,20,29,30]},
+        "CAM-06": {"name": "TOP OF WHEEL HOUSE FOR LEG 1",       "zone": "deck",    "priority": "high",     "kpi_ids": [1,6,7,18,20,29,30]},
+        "CAM-07": {"name": "TOP OF WHEEL HOUSE FOR LEG 2",       "zone": "deck",    "priority": "medium",   "kpi_ids": [1,6,7,18,20,29,30]},
+        "CAM-08": {"name": "TOP OF JACK HOUSE 3 FR 27 (P)",      "zone": "deck",    "priority": "medium",   "kpi_ids": [6,7,11,18,20,22,29,30]},
+        "CAM-09": {"name": "TOP OF JACK HOUSE 4 FR 27 (S)",      "zone": "deck",    "priority": "high",     "kpi_ids": [6,7,12,16,17,18,20,22,24,28,29]},
+        "CAM-10": {"name": "FR 90 (S) FOR RESCUE BOAT",          "zone": "deck",    "priority": "critical", "kpi_ids": [6,7,11,16,18,20,24,29,30]},
+        "CAM-11": {"name": "FR 116 (P) FOR LIFEBOAT (P)",        "zone": "deck",    "priority": "high",     "kpi_ids": [6,7,11,16,18,20,24,29,30]},
+        "CAM-12": {"name": "FR 116 (S) FOR LIFEBOAT (S)",        "zone": "deck",    "priority": "high",     "kpi_ids": [6,7,11,16,18,20,24,29,30]},
+        "CAM-13": {"name": "FR 119 (S) FOR WALKWAY FORWARD",     "zone": "deck",    "priority": "medium",   "kpi_ids": [6,18,20,30]},
+        "CAM-14": {"name": "FR 118 (P) A DECK",                  "zone": "deck",    "priority": "high",     "kpi_ids": [1,3,6,8,10,20,29]},
+        "CAM-15": {"name": "FR 118 (S) A DECK",                  "zone": "deck",    "priority": "medium",   "kpi_ids": [6,18,20,30]},
+        "CAM-16": {"name": "FR 87 (P) A DECK",                   "zone": "deck",    "priority": "high",     "kpi_ids": [6,12,16,17,18,20,22,24,28,29]},
+        "CAM-17": {"name": "FR 87 (S) A DECK",                   "zone": "deck",    "priority": "medium",   "kpi_ids": [6,12,16,17,18,20,22,24,28,29]},
+        "CAM-18": {"name": "FR 14 (P)",                          "zone": "deck",    "priority": "medium",   "kpi_ids": [6,7,18,20,22,28,29,30]},
+        "CAM-19": {"name": "FR 14 (S) A DECK",                   "zone": "deck",    "priority": "medium",   "kpi_ids": [6,7,18,20,22,28,29,30]},
+        "CAM-20": {"name": "FR 70 (P) MAIN DECK",                "zone": "deck",    "priority": "medium",   "kpi_ids": [6,7,18,20,22,28,29,30]},
+        "CAM-21": {"name": "FR 70 (S) MAIN DECK",                "zone": "deck",    "priority": "high",     "kpi_ids": [6,7,18,20,22,28,29,30]},
+        "CAM-22": {"name": "FR 1 (P) MAIN DECK",                 "zone": "deck",    "priority": "critical", "kpi_ids": [6,7,11,17,18,20,22,24,28,29,30]},
+        "CAM-23": {"name": "FR 1 (S) MAIN",                      "zone": "deck",    "priority": "high",     "kpi_ids": [6,7,11,17,18,20,22,24,28,29,30]},
+        "CAM-24": {"name": "FR 110 (P) MAIN DECK",               "zone": "deck",    "priority": "medium",   "kpi_ids": [6,18,20,30]},
+        "CAM-25": {"name": "FR 110 (S) MAIN DECK",               "zone": "deck",    "priority": "medium",   "kpi_ids": [6,18,20,30]},
+        "CAM-26": {"name": "ECR",                                 "zone": "engine",  "priority": "critical", "kpi_ids": [1,7,10,11,13,16,17,20]},
+        "CAM-27": {"name": "VFD ROOM",                           "zone": "engine",  "priority": "critical", "kpi_ids": [1,6,7,10,11,13,16,17,20]},
+        "CAM-28": {"name": "ENGINE ROOM FR 35 (P)",              "zone": "engine",  "priority": "high",     "kpi_ids": [6,7,12,17,18,20,29]},
+        "CAM-29": {"name": "ENGINE ROOM FR 17 (S)",              "zone": "engine",  "priority": "high",     "kpi_ids": [6,7,12,17,18,20,29]},
+        "CAM-30": {"name": "LAUNDRY",                            "zone": "utility", "priority": "medium",   "kpi_ids": [1,3,7,10,13,14,16,17,20,29]},
+        "CAM-31": {"name": "CRANE #2 WINCH",                     "zone": "crane",   "priority": "high",     "kpi_ids": [6,18,20,29]},
+        "CAM-32": {"name": "CRANE #2 BOOM",                      "zone": "crane",   "priority": "critical", "kpi_ids": [6,12,16,17,18,20,22,24,28,29]},
+        "CAM-33": {"name": "CRANE #2 CABIN",                     "zone": "crane",   "priority": "high",     "kpi_ids": [1,6,7,17,20,29]},
+        "CAM-34": {"name": "CRANE #1 WINCH",                     "zone": "crane",   "priority": "high",     "kpi_ids": [6,18,20,29]},
+        "CAM-35": {"name": "CRANE #1 BOOM",                      "zone": "crane",   "priority": "critical", "kpi_ids": [6,12,16,17,18,20,22,24,28,29]},
+        "CAM-36": {"name": "CRANE #1 CABIN",                     "zone": "crane",   "priority": "high",     "kpi_ids": [1,6,7,17,20,29]}
+    },
+
+    "FireSmokeKPI": {
+        "enabled": true,
+        "model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\fire-smoke.pt",
+        "smoke_confidence": 0.28,
+        "fire_confidence": 0.50,
+        "alarm_frame_threshold": 15,
+        "alarm_hold_seconds": 3.0
+    },
+
+    "MobileUsageKPI": {
+        "enabled": true,
+        "person_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\mobile-person-usage.pt",
+        "phone_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\mobile-phone-usage.pt",
+        "person_confidence": 0.5,
+        "phone_confidence": 0.30,
+        "vote_window": 20,
+        "vote_required": 6,
+        "min_person_height": 120,
+        "roi_height_ratio": 0.70,
+        "roi_pad_x_ratio": 0.10,
+        "phone_zone_ratio": 0.85,
+        "usage_hold_seconds": 3.0
+    }
+}
