@@ -1,7 +1,8 @@
 {
     "kpi_registry": {
         "7":  "fire_smoke",
-        "17": "mobile_usage"
+        "17": "mobile_usage",
+        "29": "smoking"
     },
 
     "cameras": {
@@ -65,5 +66,13 @@
         "roi_pad_x_ratio": 0.10,
         "phone_zone_ratio": 0.85,
         "usage_hold_seconds": 3.0
+    },
+
+    "SmokingKPI": {
+        "enabled": true,
+        "model_path": "app/models/smoking.pt",
+        "confidence": 0.40,
+        "alarm_frame_threshold": 10,
+        "alert_hold_seconds": 3.0
     }
 }
