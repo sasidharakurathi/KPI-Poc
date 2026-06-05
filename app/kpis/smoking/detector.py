@@ -5,7 +5,7 @@ from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
 from ..registry import register_kpi
 from ...config import settings
 
-_DEFAULT_MODEL_PATH       = settings.SMOKING_MODEL_PATH
+_DEFAULT_MODEL_PATH       = "app/models/floating.pt"
 _DEFAULT_CONF             = 0.40
 _DEFAULT_ALARM_THRESHOLD  = 10        
 _DEFAULT_ALARM_HOLD_SECS  = 3.0      

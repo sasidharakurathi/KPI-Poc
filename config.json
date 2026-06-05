@@ -2,7 +2,8 @@
     "kpi_registry": {
         "7":  "fire_smoke",
         "17": "mobile_usage",
-        "29": "smoking"
+        "29": "smoking",
+        "30": "floating"
     },
 
     "cameras": {
@@ -74,5 +75,14 @@
         "confidence": 0.40,
         "alarm_frame_threshold": 10,
         "alert_hold_seconds": 3.0
+    },
+
+    "FloatingKPI": {
+    "enabled": true,
+    "model_path": "app/models/floating.pt", 
+    "confidence": 0.40,
+    "alarm_frame_threshold": 10,
+    "alert_hold_seconds": 3.0
     }
+
 }
