@@ -1,5 +1,7 @@
 from . import fire_smoke
 from . import mobile_usage
+from . import density_occupancy
+from . import people_count
 
 from .registry import get_registered_kpis, list_registered_names, register_kpi
 
