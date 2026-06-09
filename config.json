@@ -2,6 +2,7 @@
     "kpi_registry": {
         "7":  "fire_smoke",
         "17": "mobile_usage",
+        "11": "people_count",
         "16": "occupancy",
         "24": "people_density_measurement"
     },
