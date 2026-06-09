@@ -106,7 +106,7 @@
     "SmokingKPI": {
         "enabled": true,
         "model_path": "app/models/smoking.pt",
-        "confidence": 0.40,
+        "confidence": 0.60,
         "alarm_frame_threshold": 10,
         "alert_hold_seconds": 3.0
     },
