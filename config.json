@@ -85,23 +85,23 @@
         "alert_hold_seconds": 3.0
     },
 
-    "DensityOccupancyKPI":{
-        "enabled": true,
-        "model_path": "app/kpis/density_occupancy",
-        "confidence": 0.35,
-        "min_box_area": 800,
-        "max_pillar_ratio": 4.0,
-        "min_person_ratio": 0.6,
-        "delay_ms": 33,
-        "zone_sqft": 500.0,
-        "max_occupancy": 50,
-        "density_low": 0.02,
-        "density_medium": 0.05,
-        "density_high": 0.10,
-        "save_csv": true,
-        "csv_path": "logs/density_occupancy_log.csv",
-        "alert_hold_seconds": 3.0
+    "DensityOccupancyKPI": {
+    "enabled": true,
+    "model_path": "app/kpis/density_occupancy",
+    "confidence": 0.35,
+    "iou_threshold": 0.50,
+    "delay_ms": 33,
+    "zone_sqft": 500.0,
+    "max_occupancy": 50,
+    "alert_hold_frames": 4,
+    "density_thresholds": {
+        "low":    0.02,
+        "medium": 0.05,
+        "high":   0.10
     },
+    "save_csv": true,
+    "csv_path": "logs/density_occupancy_log.csv"
+    }
 
     "SmokingKPI": {
         "enabled": true,
