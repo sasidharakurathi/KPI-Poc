@@ -134,6 +134,12 @@
     "enabled": true ,
     "model_path": "app/models/carton-box-detection.pt", 
     "confidence": 0.75
+    },
+
+     " SpeedTrackerKPI": {
+    "enabled": true ,
+    "model_path": "app/models/vehicle-detection-speed.pt", 
+    "confidence": 0.50
     }
 
 }
