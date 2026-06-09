@@ -7,7 +7,8 @@
         "30": "floating",
         "11": "people_count",
         "16": "occupancy",
-        "24": "people_density_measurement"
+        "24": "people_density_measurement",
+        "15": "carton_box_detection"
     },
 
     "cameras": {
@@ -127,6 +128,12 @@
     "overlap_threshold": 0.30,
     "alarm_frame_threshold": 10,
     "alert_hold_seconds": 3.0
+    },
+
+     "BoxCounterKPI": {
+    "enabled": true ,
+    "model_path": "app/models/carton-box-detection.pt", 
+    "confidence": 0.75
     }
 
 }
