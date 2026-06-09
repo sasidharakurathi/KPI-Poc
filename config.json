@@ -1,8 +1,9 @@
 {
     "kpi_registry": {
-        "6": "ppe",
+        "6":  "ppe",
         "7":  "fire_smoke",
         "17": "mobile_usage",
+        "20": "falling_pose",
         "29": "smoking",
         "30": "floating"
     },
@@ -57,7 +58,7 @@
 
     "MobileUsageKPI": {
         "enabled": true,
-        "person_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\mobile-person-usage.pt",
+        "person_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\mobile-phone-usage.pt",
         "phone_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\mobile-phone-usage.pt",
         "person_confidence": 0.5,
         "phone_confidence": 0.30,
@@ -87,13 +88,23 @@
     },
 
     "PPEKPI": {
-    "enabled": true,
-    "model_path": "app/models/ppe.pt", 
-    "confidence": 0.25,
-    "margin": 0.15,
-    "overlap_threshold": 0.30,
-    "alarm_frame_threshold": 10,
-    "alert_hold_seconds": 3.0
+        "enabled": true,
+        "model_path": "app/models/ppe.pt",
+        "confidence": 0.25,
+        "margin": 0.15,
+        "overlap_threshold": 0.30,
+        "alarm_frame_threshold": 10,
+        "alert_hold_seconds": 3.0
+    },
+
+    "FallingPoseKPI": {
+        "enabled": true,
+        "model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\falling-pose.pt",
+        "pose_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\yolo26s-pose.pt",
+        "confidence": 0.30,
+        "trigger_ratio": 0.80,
+        "window_seconds": 1.0,
+        "alert_hold_seconds": 2.0
     }
 
 }

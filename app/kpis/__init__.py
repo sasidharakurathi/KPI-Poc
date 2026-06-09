@@ -1,8 +1,9 @@
 from . import fire_smoke
 from . import mobile_usage
 from . import smoking
-from . import floating 
+from . import floating
 from . import ppe
+from . import falling_pose
 
 from .registry import get_registered_kpis, list_registered_names, register_kpi
 

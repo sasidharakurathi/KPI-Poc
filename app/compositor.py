@@ -3,29 +3,36 @@ import numpy as np
 
 from .kpis.base import KPIResult
 
-_FONT = cv2.FONT_HERSHEY_SIMPLEX
-_BOX_THICKNESS = 2
-_LABEL_FONT_SCALE = 0.5
-_LABEL_THICKNESS = 1
+_FONT           = cv2.FONT_HERSHEY_COMPLEX
+_BOX_THICKNESS  = 2
+_LABEL_SCALE    = 0.38
+_LABEL_THICK    = 1
+_SHADOW_COLOR   = (0, 0, 0)
 
 
 def _draw_detection(frame: np.ndarray, det, fallback_color: tuple) -> None:
     color = det.color if det.color is not None else fallback_color
+
     cv2.rectangle(frame, (det.x1, det.y1), (det.x2, det.y2), color, _BOX_THICKNESS)
 
     label = (
-        f"{det.label} {det.confidence:.2f}"
+        f"{det.label}  {det.confidence:.0%}"
         if det.confidence < 1.0
         else det.label
     )
-    (tw, th), _ = cv2.getTextSize(label, _FONT, _LABEL_FONT_SCALE, _LABEL_THICKNESS)
-    bg_y1 = max(0, det.y1 - th - 8)
-    cv2.rectangle(frame, (det.x1, bg_y1), (det.x1 + tw + 4, det.y1), color, -1)
-    cv2.putText(
-        frame, label,
-        (det.x1 + 2, det.y1 - 4 if det.y1 > 14 else det.y1 + th + 4),
-        _FONT, _LABEL_FONT_SCALE, (255, 255, 255), _LABEL_THICKNESS,
-    )
+
+    (tw, th), baseline = cv2.getTextSize(label, _FONT, _LABEL_SCALE, _LABEL_THICK)
+    pad    = 5
+    bg_y1  = max(0, det.y1 - th - pad * 2 - baseline)
+    bg_y2  = det.y1
+    bg_x2  = det.x1 + tw + pad * 2
+
+    cv2.rectangle(frame, (det.x1, bg_y1), (bg_x2, bg_y2), color, -1)
+
+    text_y = bg_y2 - baseline - 2
+    # Text shadow then white text
+    cv2.putText(frame, label, (det.x1 + pad + 1, text_y + 1), _FONT, _LABEL_SCALE, _SHADOW_COLOR, _LABEL_THICK + 1, cv2.LINE_AA)
+    cv2.putText(frame, label, (det.x1 + pad, text_y),         _FONT, _LABEL_SCALE, (255, 255, 255), _LABEL_THICK, cv2.LINE_AA)
 
 
 def _draw_status_panel(
@@ -33,7 +40,6 @@ def _draw_status_panel(
     kpi_results: dict[str, KPIResult],
     frame_idx: int,
 ) -> None:
-    """Top-left semi-transparent panel listing every KPI's status lines."""
     sections: list[tuple[str, tuple, list[str]]] = []
     for result in kpi_results.values():
         if frame_idx < len(result.frame_annotations):
@@ -44,33 +50,46 @@ def _draw_status_panel(
     if not sections:
         return
 
-    pad = 6
-    line_h = 20
-    fs = 0.45
-    th = 1
+    pad       = 8
+    title_fs  = 0.44
+    line_fs   = 0.38
+    title_th  = 1
+    line_th   = 1
+    line_h    = 20
+    accent_w  = 4
 
     # Measure panel width
     max_w = 0
     for title, _, lines in sections:
-        max_w = max(max_w, cv2.getTextSize(title, _FONT, fs + 0.05, th + 1)[0][0])
+        max_w = max(max_w, cv2.getTextSize(title, _FONT, title_fs, title_th)[0][0])
         for line in lines:
-            max_w = max(max_w, cv2.getTextSize(line, _FONT, fs, th)[0][0])
+            max_w = max(max_w, cv2.getTextSize(line, _FONT, line_fs, line_th)[0][0])
 
     total_lines = sum(1 + len(lines) for _, _, lines in sections)
-    panel_w = max_w + pad * 2
-    panel_h = total_lines * line_h + pad * 2
+    panel_w     = max_w + pad * 2 + accent_w + 6
+    panel_h     = total_lines * line_h + pad * 2
 
-    x0, y0 = 10, 10
+    x0, y0 = 12, 12
+
+    # Semi-transparent dark background
     overlay = frame.copy()
-    cv2.rectangle(overlay, (x0, y0), (x0 + panel_w, y0 + panel_h), (20, 20, 20), -1)
-    cv2.addWeighted(overlay, 0.65, frame, 0.35, 0, frame)
+    cv2.rectangle(overlay, (x0, y0), (x0 + panel_w, y0 + panel_h), (15, 15, 15), -1)
+    cv2.addWeighted(overlay, 0.50, frame, 0.50, 0, frame)
 
-    cy = y0 + pad + line_h
+    cy = y0 + pad + line_h - 4
     for title, color, lines in sections:
-        cv2.putText(frame, title, (x0 + pad, cy), _FONT, fs + 0.05, color, th + 1)
+        section_h = (1 + len(lines)) * line_h
+        cv2.rectangle(frame, (x0, cy - line_h + 2), (x0 + accent_w, cy - line_h + 2 + section_h), color, -1)
+
+        tx = x0 + accent_w + 8
+
+        # Title: thin colored outline then white fill
+        cv2.putText(frame, title, (tx, cy), _FONT, title_fs, color,           title_th , cv2.LINE_AA)
+        cv2.putText(frame, title, (tx, cy), _FONT, title_fs, (255, 255, 255), title_th,     cv2.LINE_AA)
         cy += line_h
+
         for line in lines:
-            cv2.putText(frame, line, (x0 + pad + 8, cy), _FONT, fs, (210, 210, 210), th)
+            cv2.putText(frame, line, (tx, cy), _FONT, line_fs, (210, 210, 210), line_th, cv2.LINE_AA)
             cy += line_h
 
 
@@ -79,13 +98,9 @@ def compose_video(
     kpi_results: dict[str, KPIResult],
     output_path: str,
 ) -> None:
-    """
-    Read source_path frame-by-frame, overlay all KPI annotations,
-    and write the result to output_path as an mp4.
-    """
-    cap = cv2.VideoCapture(source_path)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    cap    = cv2.VideoCapture(source_path)
+    fps    = cap.get(cv2.CAP_PROP_FPS) or 25
+    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     writer = cv2.VideoWriter(
