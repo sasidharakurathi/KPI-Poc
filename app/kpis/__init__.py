@@ -5,6 +5,7 @@ from . import people_count
 from . import smoking
 from . import floating 
 from . import ppe
+from . import ANPR_LPR
 
 from .registry import get_registered_kpis, list_registered_names, register_kpi
 
