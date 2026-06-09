@@ -1,7 +1,10 @@
 {
     "kpi_registry": {
+        "6": "ppe",
         "7":  "fire_smoke",
         "17": "mobile_usage",
+        "29": "smoking",
+        "30": "floating",
         "11": "people_count",
         "16": "occupancy",
         "24": "people_density_measurement"
@@ -98,6 +101,32 @@
         "save_csv": true,
         "csv_path": "logs/density_occupancy_log.csv",
         "alert_hold_seconds": 3.0
+    },
+
+    "SmokingKPI": {
+        "enabled": true,
+        "model_path": "app/models/smoking.pt",
+        "confidence": 0.40,
+        "alarm_frame_threshold": 10,
+        "alert_hold_seconds": 3.0
+    },
+
+    "FloatingKPI": {
+    "enabled": true,
+    "model_path": "app/models/floating.pt", 
+    "confidence": 0.40,
+    "alarm_frame_threshold": 10,
+    "alert_hold_seconds": 3.0
+    },
+
+    "PPEKPI": {
+    "enabled": true,
+    "model_path": "app/models/ppe.pt", 
+    "confidence": 0.25,
+    "margin": 0.15,
+    "overlap_threshold": 0.30,
+    "alarm_frame_threshold": 10,
+    "alert_hold_seconds": 3.0
     }
 
 }
