@@ -1,14 +1,15 @@
 {
     "kpi_registry": {
-        "6":  "ppe",
+        "2" : "ANPR_LPR",
+        "6":   "ppe",
         "7":  "fire_smoke",
-        "17": "mobile_usage",
-        "20": "falling_pose",
-        "29": "smoking",
-        "30": "floating",
         "11": "people_count",
         "16": "occupancy",
-        "24": "density_occupancy"
+        "17": "mobile_usage",
+        "20": "falling_pose",
+        "24": "density_occupancy",
+        "29": "smoking",
+        "30": "floating"
     },
 
     "cameras": {
@@ -48,6 +49,17 @@
         "CAM-34": {"name": "CRANE #1 WINCH",                     "zone": "crane",   "priority": "high",     "kpi_ids": [6,18,20,29]},
         "CAM-35": {"name": "CRANE #1 BOOM",                      "zone": "crane",   "priority": "critical", "kpi_ids": [6,12,16,17,18,20,22,24,28,29]},
         "CAM-36": {"name": "CRANE #1 CABIN",                     "zone": "crane",   "priority": "high",     "kpi_ids": [1,6,7,17,20,29]}
+    },
+
+    "AnprLprKPI": {
+        "enabled": true,
+        "model_path": "app/models/anpr_lpr.pt",
+        "confidence": 0.3,
+        "alert_hold_seconds": 3.0,
+        "frame_skip": 2,
+        "aspect_ratio_min": 0.5,
+        "aspect_ratio_max": 7.0,
+        "min_plate_chars": 4
     },
 
     "FireSmokeKPI": {

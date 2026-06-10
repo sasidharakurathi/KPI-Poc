@@ -1,16 +1,17 @@
-fastapi==0.136.3
-uvicorn==0.49.0
-python-multipart==0.0.32
+fastapi
+uvicorn
+python-multipart
 
-pydantic==2.13.4
-pydantic-settings==2.14.1
+pydantic
+pydantic-settings
 
 # For CUDA support install torch separately:
 #   pip install torch==2.12.0+cu126 torchvision==0.27.0+cu126 --index-url https://download.pytorch.org/whl/cu126
-torch==2.12.0
-torchvision==0.27.0
-opencv-python==4.13.0.92
-numpy==2.4.6
-ultralytics==8.4.60
+torch
+torchvision
+opencv-python
+numpy
+ultralytics
 
-shapely>=2.0.0
+shapely
+easyocr
