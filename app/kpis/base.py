@@ -22,6 +22,7 @@ class FrameAnnotation:
     frame_idx: int
     detections: list[Detection] = field(default_factory=list)
     status_lines: list[str] = field(default_factory=list)
+    extra: Optional[dict] = None
 
 
 @dataclass

@@ -8,7 +8,7 @@
         "30": "floating",
         "11": "people_count",
         "16": "occupancy",
-        "24": "people_density_measurement"
+        "24": "density_occupancy"
     },
 
     "cameras": {
@@ -52,7 +52,7 @@
 
     "FireSmokeKPI": {
         "enabled": true,
-        "model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\fire-smoke.pt",
+        "model_path": "app/models/fire-smoke.pt",
         "smoke_confidence": 0.28,
         "fire_confidence": 0.50,
         "alarm_frame_threshold": 15,
@@ -61,8 +61,8 @@
 
     "MobileUsageKPI": {
         "enabled": true,
-        "person_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\yolo26s.pt",
-        "phone_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\mobile-phone-usage.pt",
+        "person_model_path": "app/models/yolo26s.pt",
+        "phone_model_path": "app/models/mobile-phone-usage.pt",
         "person_confidence": 0.5,
         "phone_confidence": 0.30,
         "vote_window": 20,
@@ -74,8 +74,8 @@
         "usage_hold_seconds": 3.0
     },
     "PeopleCountKPI": {
-        "enabled": false,
-        "model_path": "app/kpis/people_count",
+        "enabled": true,
+        "model_path": "app/models/ppl-count-yolo26m.pt",
         "confidence": 0.35,
         "min_box_area": 800,
         "max_pillar_ratio": 4.0,
@@ -87,8 +87,8 @@
     },
 
     "DensityOccupancyKPI": {
-    "enabled": false,
-    "model_path": "app/kpis/density_occupancy",
+    "enabled": true,
+    "model_path": "app/models/density-occupancy.pt",
     "confidence": 0.35,
     "iou_threshold": 0.50,
     "delay_ms": 33,
@@ -115,7 +115,7 @@
     "FloatingKPI": {
         "enabled": true,
         "model_path": "app/models/floating.pt",
-        "pose_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\yolo26s-pose.pt",
+        "pose_model_path": "app/models/yolo26s-pose.pt",
         "confidence": 0.40,
         "alarm_frame_threshold": 10,
         "alert_hold_seconds": 3.0
@@ -124,7 +124,7 @@
     "PPEKPI": {
         "enabled": true,
         "model_path": "app/models/ppe.pt",
-        "pose_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\yolo26s-pose.pt",
+        "pose_model_path": "app/models/yolo26s-pose.pt",
         "confidence": 0.25,
         "margin": 0.15,
         "overlap_threshold": 0.30,
@@ -134,8 +134,8 @@
 
     "FallingPoseKPI": {
         "enabled": true,
-        "model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\falling-pose.pt",
-        "pose_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\yolo26s-pose.pt",
+        "model_path": "app/models/falling-pose.pt",
+        "pose_model_path": "app/models/yolo26s-pose.pt",
         "confidence": 0.30,
         "trigger_ratio": 0.80,
         "window_seconds": 1.0,
