@@ -1,9 +1,11 @@
 {
     "kpi_registry": {
         "2" : "ANPR_LPR",
+        "4": "speed_tracker",
         "6":   "ppe",
         "7":  "fire_smoke",
         "11": "people_count",
+        "15": "box_counter",
         "16": "occupancy",
         "17": "mobile_usage",
         "20": "falling_pose",
@@ -152,6 +154,16 @@
         "trigger_ratio": 0.80,
         "window_seconds": 1.0,
         "alert_hold_seconds": 2.0
+    },
+    "BoxCounterKPI": {
+        "enabled": true ,
+        "model_path": "app/models/carton-box-detection.pt", 
+        "confidence": 0.75
+    },
+    "SpeedTrackerKPI": {
+        "enabled": true ,
+        "model_path": "app/models/vehicle-detection-speed.pt", 
+        "confidence": 0.50
     }
 
 }
