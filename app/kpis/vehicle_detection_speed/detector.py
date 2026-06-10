@@ -73,7 +73,7 @@ class SpeedTrackerKPI(BaseKPI):
                             job_id,
                             frame_idx,
                             confidence=float(results[0].boxes.conf[0]),
-                            extra={"speed": round(v_data['speed'], 2), "track_id": int(track_id)}
+                            extra={"speed": round(float(v_data['speed']), 2), "track_id": int(track_id)}
                         )
                         alerted_vehicles.add(track_id)
 

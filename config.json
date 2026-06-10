@@ -1,5 +1,6 @@
 {
     "kpi_registry": {
+        "4": "speed_tracker",
         "6": "ppe",
         "7":  "fire_smoke",
         "17": "mobile_usage",
@@ -8,7 +9,7 @@
         "11": "people_count",
         "16": "occupancy",
         "24": "people_density_measurement",
-        "15": "carton_box_detection"
+        "15": "box_counter"
     },
 
     "cameras": {
@@ -136,7 +137,7 @@
     "confidence": 0.75
     },
 
-     " SpeedTrackerKPI": {
+    "SpeedTrackerKPI": {
     "enabled": true ,
     "model_path": "app/models/vehicle-detection-speed.pt", 
     "confidence": 0.50
