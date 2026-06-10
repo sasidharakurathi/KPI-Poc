@@ -74,7 +74,7 @@
         "usage_hold_seconds": 3.0
     },
     "PeopleCountKPI": {
-        "enabled": true,
+        "enabled": false,
         "model_path": "app/kpis/people_count",
         "confidence": 0.35,
         "min_box_area": 800,
@@ -87,7 +87,7 @@
     },
 
     "DensityOccupancyKPI": {
-    "enabled": true,
+    "enabled": false,
     "model_path": "app/kpis/density_occupancy",
     "confidence": 0.35,
     "iou_threshold": 0.50,
@@ -113,16 +113,18 @@
     },
 
     "FloatingKPI": {
-    "enabled": true,
-    "model_path": "app/models/floating.pt", 
-    "confidence": 0.40,
-    "alarm_frame_threshold": 10,
-    "alert_hold_seconds": 3.0
+        "enabled": true,
+        "model_path": "app/models/floating.pt",
+        "pose_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\yolo26s-pose.pt",
+        "confidence": 0.40,
+        "alarm_frame_threshold": 10,
+        "alert_hold_seconds": 3.0
     },
 
     "PPEKPI": {
         "enabled": true,
         "model_path": "app/models/ppe.pt",
+        "pose_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\yolo26s-pose.pt",
         "confidence": 0.25,
         "margin": 0.15,
         "overlap_threshold": 0.30,

@@ -3,6 +3,7 @@ from ultralytics import YOLO
 
 from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
 from ..registry import register_kpi
+from ..pose_utils import _DEFAULT_POSE_MODEL_PATH, load_pose_model, run_pose, human_keypoints_in_box
 from ...config import settings
 
 
@@ -78,9 +79,12 @@ class PPEKPI(BaseKPI):
         alarm_threshold = self._get("alarm_frame_threshold", _DEFAULT_ALARM_THRESHOLD)
         alert_hold_secs = self._get("alert_hold_seconds",    _DEFAULT_ALERT_HOLD_SECS)
 
-        model = YOLO(model_path)
+        pose_model_path = self._get("pose_model_path", _DEFAULT_POSE_MODEL_PATH)
 
-        cap = cv2.VideoCapture(video_path)
+        model      = YOLO(model_path)
+        pose_model = load_pose_model(pose_model_path)
+
+        cap         = cv2.VideoCapture(video_path)
         fps         = cap.get(cv2.CAP_PROP_FPS) or 25
         hold_frames = int(alert_hold_secs * fps)
 
@@ -140,6 +144,14 @@ class PPEKPI(BaseKPI):
                         helmets.append(b)
                     elif label == VEST_CLS:
                         vests.append(b)
+
+            # Pose-verify each person box — rejects burning objects / vehicles
+            if persons:
+                pose_results = run_pose(pose_model, frame)
+                persons = [
+                    (b, c) for b, c in persons
+                    if human_keypoints_in_box(pose_results, int(b[0]), int(b[1]), int(b[2]), int(b[3]))
+                ]
 
             for pbox, pconf in persons:
                 status, color, expanded = raw_status(

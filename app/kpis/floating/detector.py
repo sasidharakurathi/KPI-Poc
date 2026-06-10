@@ -3,33 +3,40 @@ from ultralytics import YOLO
 
 from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
 from ..registry import register_kpi
+from ..pose_utils import _DEFAULT_POSE_MODEL_PATH, load_pose_model, run_pose, human_keypoints_in_box
 from ...config import settings
 
+_DEFAULT_MODEL_PATH      = "app/models/floating.pt"
+_DEFAULT_CONF            = 0.40
+_DEFAULT_ALARM_THRESHOLD = 10
+_DEFAULT_ALARM_HOLD_SECS = 3.0
 
-_DEFAULT_MODEL_PATH       = "app/models/floating.pt"
-_DEFAULT_CONF             = 0.40
-_DEFAULT_ALARM_THRESHOLD  = 10
-_DEFAULT_ALARM_HOLD_SECS  = 3.0
+# 0 -> floating_object (no keypoint check — life ring / debris is a real alert)
+# 1 -> human           (keypoint check required to reject burning objects/vehicles)
+_CLS_FLOATING_OBJECT = 0
+_CLS_HUMAN           = 1
 
 
 @register_kpi
 class FloatingKPI(BaseKPI):
     name = "floating"
     display_name = "Floating Object / Person"
-    color = (255, 0, 0)  
+    color = (255, 0, 0)
 
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
         device = settings.DEVICE
         half   = settings.USE_HALF and device != "cpu"
 
-        model_path      = self._get("model_path",          _DEFAULT_MODEL_PATH)
-        conf            = self._get("confidence",          _DEFAULT_CONF)
+        model_path      = self._get("model_path",           _DEFAULT_MODEL_PATH)
+        pose_model_path = self._get("pose_model_path",      _DEFAULT_POSE_MODEL_PATH)
+        conf            = self._get("confidence",           _DEFAULT_CONF)
         alarm_threshold = self._get("alarm_frame_threshold", _DEFAULT_ALARM_THRESHOLD)
-        alarm_hold_secs = self._get("alert_hold_seconds",  _DEFAULT_ALARM_HOLD_SECS)
+        alarm_hold_secs = self._get("alert_hold_seconds",   _DEFAULT_ALARM_HOLD_SECS)
 
-        model = YOLO(model_path)
+        model      = YOLO(model_path)
+        pose_model = load_pose_model(pose_model_path)
 
-        cap = cv2.VideoCapture(video_path)
+        cap         = cv2.VideoCapture(video_path)
         fps         = cap.get(cv2.CAP_PROP_FPS) or 25
         hold_frames = int(alarm_hold_secs * fps)
 
@@ -54,8 +61,9 @@ class FloatingKPI(BaseKPI):
                 verbose=False,
             )
 
-            detections: list[Detection] = []
-            any_detection_this_frame = False
+            # Separate human candidates (need pose check) from object candidates
+            human_candidates: list[tuple[int, int, int, int, float]] = []
+            object_detections: list[Detection] = []
 
             for r in results:
                 for box in r.boxes:
@@ -63,19 +71,25 @@ class FloatingKPI(BaseKPI):
                     conf_val = float(box.conf[0])
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
 
-                    # Map class ids from YAML:
-                    # 0 -> floating_object
-                    # 1 -> human
-                    if cls_id == 0 and conf_val >= conf:
-                        any_detection_this_frame = True
-                        detections.append(
+                    if cls_id == _CLS_FLOATING_OBJECT:
+                        object_detections.append(
                             Detection(x1, y1, x2, y2, "floating_object", conf_val)
                         )
-                    elif cls_id == 1 and conf_val >= conf:
-                        any_detection_this_frame = True
-                        detections.append(
+                    elif cls_id == _CLS_HUMAN:
+                        human_candidates.append((x1, y1, x2, y2, conf_val))
+
+            # Verify human candidates with pose model
+            verified_human_detections: list[Detection] = []
+            if human_candidates:
+                pose_results = run_pose(pose_model, frame)
+                for x1, y1, x2, y2, conf_val in human_candidates:
+                    if human_keypoints_in_box(pose_results, x1, y1, x2, y2):
+                        verified_human_detections.append(
                             Detection(x1, y1, x2, y2, "human", conf_val)
                         )
+
+            detections = object_detections + verified_human_detections
+            any_detection_this_frame = len(detections) > 0
 
             if any_detection_this_frame:
                 detection_persistence += 1
@@ -84,7 +98,6 @@ class FloatingKPI(BaseKPI):
                 if detection_persistence >= alarm_threshold and not alarm_active:
                     alarm_active = True
                     if job_id:
-                        # One generic alert type
                         self._save_alert(
                             frame,
                             "floating_alarm",

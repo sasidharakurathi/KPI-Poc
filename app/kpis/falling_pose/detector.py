@@ -4,10 +4,10 @@ from ultralytics import YOLO
 
 from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
 from ..registry import register_kpi
+from ..pose_utils import _DEFAULT_POSE_MODEL_PATH, load_pose_model, run_pose, human_keypoints_in_box
 from ...config import settings
 
 _DEFAULT_MODEL_PATH      = "app/models/falling-pose.pt"
-_DEFAULT_POSE_MODEL_PATH = "app/models/yolo26s-pose.pt"
 _DEFAULT_CONF            = 0.30
 _DEFAULT_TRIGGER_RATIO   = 0.80
 _DEFAULT_WINDOW_SECS     = 1.0
@@ -25,44 +25,6 @@ _CLASS_COLORS = {
     _CLS_FALLING: _COLOR_FALLING,
     _CLS_FALLEN:  _COLOR_FALLEN,
 }
-
-# Shoulder and hip keypoint indices (COCO-17 format)
-_KEY_INDICES = [5, 6, 11, 12]
-
-
-def _human_keypoints_in_box(pose_results, x1: int, y1: int, x2: int, y2: int) -> bool:
-    """
-    Returns True if any person detected by the pose model has shoulder/hip
-    keypoints whose centroid lies inside the candidate fall bounding box.
-    A burning scooter or vehicle produces zero human keypoints, so it fails.
-    A real fallen person has shoulder/hip keypoints inside the box, so it passes.
-    """
-    for r in pose_results:
-        if r.keypoints is None:
-            continue
-        # kps shape: (N_persons, 17, 2) — pixel xy coordinates
-        kps = r.keypoints.xy.cpu().numpy()
-        for person_kps in kps:
-            valid_pts = [
-                (float(person_kps[i][0]), float(person_kps[i][1]))
-                for i in _KEY_INDICES
-                if person_kps[i][0] > 0 and person_kps[i][1] > 0
-            ]
-            if not valid_pts:
-                continue
-
-            # Centroid of the valid shoulder/hip keypoints
-            cx = sum(p[0] for p in valid_pts) / len(valid_pts)
-            cy = sum(p[1] for p in valid_pts) / len(valid_pts)
-            if x1 <= cx <= x2 and y1 <= cy <= y2:
-                return True
-
-            # Fallback: any individual keypoint inside the box
-            for kx, ky in valid_pts:
-                if x1 <= kx <= x2 and y1 <= ky <= y2:
-                    return True
-
-    return False
 
 
 @register_kpi
@@ -83,7 +45,7 @@ class FallingPoseKPI(BaseKPI):
         alert_hold_secs = self._get("alert_hold_seconds", _DEFAULT_ALERT_HOLD_SECS)
 
         model      = YOLO(model_path)
-        pose_model = YOLO(pose_model_path)
+        pose_model = load_pose_model(pose_model_path)
 
         cap         = cv2.VideoCapture(video_path)
         fps         = cap.get(cv2.CAP_PROP_FPS) or 25
@@ -127,15 +89,10 @@ class FallingPoseKPI(BaseKPI):
 
             if candidates:
                 # Run pose model only when there are candidate fall boxes
-                pose_results = pose_model.predict(
-                    source=frame,
-                    device=device,
-                    half=half,
-                    verbose=False,
-                )
+                pose_results = run_pose(pose_model, frame)
 
                 for x1, y1, x2, y2, cls_id, conf_val in candidates:
-                    if not _human_keypoints_in_box(pose_results, x1, y1, x2, y2):
+                    if not human_keypoints_in_box(pose_results, x1, y1, x2, y2):
                         continue  # no human keypoints inside box — reject
 
                     cls_name = model.names[cls_id]
