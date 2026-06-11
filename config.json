@@ -85,12 +85,15 @@
     "DensityOccupancyKPI": {
     "enabled": true,
     "model_path": "app/kpis/density_occupancy",
-    "confidence": 0.35,
+    "confidence": 0.50,
     "iou_threshold": 0.50,
     "delay_ms": 33,
     "zone_sqft": 500.0,
     "max_occupancy": 50,
     "alert_hold_frames": 4,
+    "min_box_w": 30,
+    "min_box_h": 60,
+    "dwell_min_frames": 2,
     "density_thresholds": {
         "low":    0.02,
         "medium": 0.05,
