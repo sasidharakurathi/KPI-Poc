@@ -121,18 +121,18 @@
     "SmokingKPI": {
         "enabled": true,
         "model_path": "app/models/smoking.pt",
-        "confidence": 0.20,
-        "alarm_frame_threshold": 20,
-        "alert_hold_seconds": 6.0
+        "confidence": 0.40,
+        "alarm_seconds": 1.0,
+        "alert_hold_seconds": 4.0
     },
 
     "FloatingKPI": {
         "enabled": true,
         "model_path": "app/models/floating.pt",
         "pose_model_path": "app/models/yolo26s-pose.pt",
-        "confidence": 0.40,
-        "alarm_frame_threshold": 10,
-        "alert_hold_seconds": 3.0
+        "confidence": 0.30,
+        "alarm_seconds": 1.0,
+        "alert_hold_seconds": 4.0
     },
 
     "PPEKPI": {
@@ -142,8 +142,8 @@
         "confidence": 0.25,
         "margin": 0.15,
         "overlap_threshold": 0.30,
-        "alarm_frame_threshold": 10,
-        "alert_hold_seconds": 3.0
+        "alarm_seconds": 2.0,
+        "alert_hold_seconds": 4.0
     },
 
     "FallingPoseKPI": {
