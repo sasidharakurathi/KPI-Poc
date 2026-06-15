@@ -2,6 +2,7 @@
     "kpi_registry": {
         "2" : "ANPR_LPR",
         "4": "speed_tracker",
+        "5": "guard_presence",
         "6":   "ppe",
         "7":  "fire_smoke",
         "11": "people_count",
@@ -164,6 +165,14 @@
         "enabled": true ,
         "model_path": "app/models/vehicle-detection-speed.pt", 
         "confidence": 0.50
+    },
+    "GuardPresenceKPI": {
+        "enabled": true,
+        "model_path": "app/models/guard-presence.pt",
+        "confidence": 0.25,
+        "alert_hold_seconds": 3.0
     }
+
+
 
 }
