@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+import supervision as sv
+from collections import defaultdict, deque
 from ultralytics import YOLO
 from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
 from ..registry import register_kpi
@@ -9,27 +11,28 @@ from ...config import settings
 class SpeedTrackerKPI(BaseKPI):
     name = "speed_tracker"
     display_name = "Vehicle Speed Tracker"
-    color = (0, 255, 255)  # Yellow for estimating
+    color = (0, 255, 255)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.src = np.float32([[400, 300], [900, 300], [1200, 800], [100, 800]])
+        self.dst = np.float32([[0, 0], [20, 0], [20, 40], [0, 40]])
+        self.M = cv2.getPerspectiveTransform(self.src, self.dst)
+        self.tracker = sv.ByteTrack() # Initialize supervision tracker
+
+    def _transform_points(self, points: np.ndarray):
+        reshaped = points.reshape(-1, 1, 2).astype(np.float32)
+        transformed = cv2.perspectiveTransform(reshaped, self.M)
+        return transformed.reshape(-1, 2)
 
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
-        device = settings.DEVICE
-        half = settings.USE_HALF and device != "cpu"
-
-        model_path = self._get("model_path", "best.pt")
-        conf = self._get("confidence", 0.5)
-        # Perspective Calibration
-        src = np.float32([[400, 400], [800, 400], [1000, 720], [200, 720]])
-        dst = np.float32([[0, 0], [400, 0], [400, 400], [0, 400]])
-        M = cv2.getPerspectiveTransform(src, dst)
-        meters_per_pixel = 20.0 / 400.0
-
+        model_path = self._get("model_path", "yolov8n.pt")
         model = YOLO(model_path)
         cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS) or 25
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30
 
         frame_annotations = []
-        vehicle_data = {}
-        # Track if an alert has already been sent for this vehicle to prevent spamming
+        coordinates = defaultdict(lambda: deque(maxlen=int(fps)))
         alerted_vehicles = set()
         frame_idx = 0
 
@@ -38,49 +41,39 @@ class SpeedTrackerKPI(BaseKPI):
             if not ret:
                 break
 
-            results = model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False)
+            results = model(frame, verbose=False)[0]
+            detections = sv.Detections.from_ultralytics(results)
+            detections = self.tracker.update_with_detections(detections)
             
-            detections = []
+            frame_dets = []
             status_lines = []
 
-            if results[0].boxes.id is not None:
-                boxes = results[0].boxes.xyxy.cpu().numpy()
-                ids = results[0].boxes.id.cpu().numpy().astype(int)
+            if detections.tracker_id is not None:
+                anchors = detections.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)
+                transformed_anchors = self._transform_points(anchors)
 
-                for box, track_id in zip(boxes, ids):
-                    cx, cy = int((box[0] + box[2]) / 2), int(box[3])
-                    point = np.array([[[cx, cy]]], dtype="float32")
-                    wx, wy = cv2.perspectiveTransform(point, M)[0][0]
+                for i, track_id in enumerate(detections.tracker_id):
+                    coordinates[track_id].append(transformed_anchors[i])
+                    
+                    speed_kmh = 0
+                    if len(coordinates[track_id]) > 5:
+                        dist = np.linalg.norm(coordinates[track_id][-1] - coordinates[track_id][0])
+                        time_s = len(coordinates[track_id]) / fps
+                        speed_kmh = int((dist / time_s) * 3.6)
+                        speed_kmh = speed_kmh if speed_kmh > 5 else 0
 
-                    if track_id not in vehicle_data:
-                        vehicle_data[track_id] = {'start_pos': (wx, wy), 'start_frame': frame_idx, 'speed': 0, 'locked': False}
-                    
-                    v_data = vehicle_data[track_id]
-                    pixel_dist = np.sqrt((wx - v_data['start_pos'][0])**2 + (wy - v_data['start_pos'][1])**2)
-                    meters = pixel_dist * meters_per_pixel
-                    time_s = (frame_idx - v_data['start_frame']) / fps
-                    
-                    if time_s > 0:
-                        v_data['speed'] = (meters / time_s) * 3.6
-                        if meters > 10.0:
-                            v_data['locked'] = True
-                    
-                    # ALERT LOGIC: Trigger if speed > 25kmph
-                    if v_data['speed'] > 25.0 and track_id not in alerted_vehicles:
-                        self._save_alert(
-                            frame,
-                            "speeding_violation",
-                            job_id,
-                            frame_idx,
-                            confidence=float(results[0].boxes.conf[0]),
-                            extra={"speed": round(float(v_data['speed']), 2), "track_id": int(track_id)}
-                        )
+                    if speed_kmh > 25.0 and track_id not in alerted_vehicles:
+                        self._save_alert(frame, "speeding_violation", job_id, frame_idx, 
+                                         confidence=float(detections.confidence[i]),
+                                         extra={"speed": speed_kmh, "track_id": int(track_id)})
                         alerted_vehicles.add(track_id)
 
-                    detections.append(Detection(int(box[0]), int(box[1]), int(box[2]), int(box[3]), f"{int(v_data['speed'])}km/h", 1.0))
-                    status_lines.append(f"ID {track_id}: {int(v_data['speed'])} km/h")
+                    label = f"{speed_kmh}km/h" if speed_kmh > 0 else "warming..."
+                    xyxy = detections.xyxy[i]
+                    frame_dets.append(Detection(int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3]), label, float(detections.confidence[i])))
+                    status_lines.append(f"ID {track_id}: {label}")
 
-            frame_annotations.append(FrameAnnotation(frame_idx, detections, status_lines))
+            frame_annotations.append(FrameAnnotation(frame_idx, frame_dets, status_lines))
             frame_idx += 1
 
         cap.release()

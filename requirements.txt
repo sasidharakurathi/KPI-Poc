@@ -12,6 +12,6 @@ torchvision
 opencv-python
 numpy
 ultralytics
-
+supervision
 shapely
 easyocr

@@ -1,29 +1,29 @@
 import cv2
+import os
+import supervision as sv
 from ultralytics import YOLO
 from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
 from ..registry import register_kpi
 from ...config import settings
 
-# Default values
-_DEFAULT_CONF = 0.75
-
 @register_kpi
 class BoxCounterKPI(BaseKPI):
-    name = "box_counter"
-    display_name = "Box Counter"
-    color = (0, 255, 0)  # BGR green
+    name = "object_detection"
+    display_name = "Object Detection and Counting"
+    color = (0, 255, 0)  # Green for detections
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Initialize Supervision Annotators
+        self.box_annotator = sv.BoxAnnotator(thickness=2)
+        self.label_annotator = sv.LabelAnnotator(text_position=sv.Position.TOP_CENTER)
 
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
-        device = settings.DEVICE
-        half = settings.USE_HALF and device != "cpu"
-
-        # Load parameters
         model_path = self._get("model_path", "best.pt")
-        conf = self._get("confidence", _DEFAULT_CONF)
-
+        conf_threshold = self._get("confidence", 0.75)
         model = YOLO(model_path)
-        cap = cv2.VideoCapture(video_path)
         
+        cap = cv2.VideoCapture(video_path)
         frame_annotations = []
         frame_idx = 0
 
@@ -32,51 +32,29 @@ class BoxCounterKPI(BaseKPI):
             if not ret:
                 break
 
-            # Run prediction
-            results = model.predict(
-                source=frame, conf=conf, device=device, half=half, verbose=False
-            )
+            results = model(frame, conf=conf_threshold, verbose=False)[0]
+            detections = sv.Detections.from_ultralytics(results)
             
-            detections = []
+            # Prepare data for BaseKPI structure
+            frame_dets = []
             status_lines = []
-
-            for r in results:
-                box_count = len(r.boxes)
+            
+            if detections is not None and len(detections) > 0:
+                for i in range(len(detections)):
+                    box = detections.xyxy[i]
+                    class_id = detections.class_id[i]
+                    confidence = detections.confidence[i]
+                    label_text = f"{model.names[class_id]}"
+                    
+                    frame_dets.append(Detection(
+                        int(box[0]), int(box[1]), int(box[2]), int(box[3]), 
+                        label_text, float(confidence)
+                    ))
                 
-                # Logic for triggering the alert
-                if box_count > 0:
-                    self._save_alert(
-                        frame, 
-                        "box_detected", 
-                        job_id, 
-                        frame_idx,
-                        confidence=float(r.boxes.conf.max()) if len(r.boxes) > 0 else 0.0, 
-                        extra={"count": box_count}
-                    )
+                status_lines.append(f"Objects Detected: {len(detections)}")
 
-                # Extract detection data for the UI
-                for box in r.boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    label = r.names[int(box.cls[0])]
-                    conf_val = float(box.conf[0])
-                    detections.append(Detection(x1, y1, x2, y2, label, conf_val))
-                
-                status_lines.append(f"Count: {box_count}")
-
-            # Store annotations
-            frame_annotations.append(FrameAnnotation(
-                frame_idx=frame_idx,
-                detections=detections,
-                status_lines=status_lines,
-            ))
+            frame_annotations.append(FrameAnnotation(frame_idx, frame_dets, status_lines))
             frame_idx += 1
 
         cap.release()
-
-        return KPIResult(
-            kpi_name=self.name,
-            display_name=self.display_name,
-            color=self.color,
-            frame_annotations=frame_annotations,
-            summary={"total_frames": frame_idx, "final_count": len(results[0].boxes) if results else 0},
-        )
+        return KPIResult(self.name, self.display_name, self.color, frame_annotations, {"total_frames": frame_idx})
