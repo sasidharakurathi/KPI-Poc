@@ -14,9 +14,6 @@ class BoxCounterKPI(BaseKPI):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Initialize Supervision Annotators
-        self.box_annotator = sv.BoxAnnotator(thickness=2)
-        self.label_annotator = sv.LabelAnnotator(text_position=sv.Position.TOP_CENTER)
 
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
         model_path = self._get("model_path", "best.pt")
@@ -24,6 +21,19 @@ class BoxCounterKPI(BaseKPI):
         model = YOLO(model_path)
         
         cap = cv2.VideoCapture(video_path)
+        
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        from ...kpis.base import get_dynamic_scale
+        scale = get_dynamic_scale(w, h) if w and h else 1.0
+
+        box_annotator = sv.BoxAnnotator(thickness=max(1, int(round(2 * scale))))
+        label_annotator = sv.LabelAnnotator(
+            text_scale=0.5 * scale,
+            text_thickness=max(1, int(round(1 * scale))),
+            text_position=sv.Position.TOP_CENTER
+        )
+
         frame_annotations = []
         frame_idx = 0
 

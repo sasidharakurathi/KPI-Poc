@@ -82,8 +82,6 @@ class PPEKPI(BaseKPI):
         pose_model = load_pose_model(pose_model_path)
 
         tracker = sv.ByteTrack()
-        box_annotator = sv.BoxAnnotator()
-        label_annotator = sv.LabelAnnotator()
 
         video_info   = sv.VideoInfo.from_video_path(video_path)
         fps          = video_info.fps or 25
@@ -91,6 +89,17 @@ class PPEKPI(BaseKPI):
         hold_frames  = int(alert_hold_secs * fps)
 
         cap = cv2.VideoCapture(video_path)
+
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        from ...kpis.base import get_dynamic_scale
+        scale = get_dynamic_scale(w, h) if w and h else 1.0
+        
+        box_annotator = sv.BoxAnnotator(thickness=max(1, int(round(2 * scale))))
+        label_annotator = sv.LabelAnnotator(
+            text_scale=0.5 * scale,
+            text_thickness=max(1, int(round(1 * scale)))
+        )
 
         frame_annotations: list[FrameAnnotation] = []
 
@@ -292,11 +301,11 @@ class PPEKPI(BaseKPI):
                 cv2.putText(
                     annotated_frame,
                     "!! PPE NON-COMPLIANCE ALARM",
-                    (30, 50),
+                    (max(10, int(30 * scale)), max(20, int(50 * scale))),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
+                    1.0 * scale,
                     (0, 0, 255),
-                    2,
+                    max(1, int(round(2 * scale))),
                     cv2.LINE_AA,
                 )
 

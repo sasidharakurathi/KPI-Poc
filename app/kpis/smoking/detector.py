@@ -31,10 +31,6 @@ class SmokingKPI(BaseKPI):
 
         model = YOLO(model_path)
 
-        # ── Supervision annotators ──────────────────────────────────────────
-        box_annotator   = sv.BoxAnnotator(color=sv.Color.from_bgr_tuple(self.color))
-        label_annotator = sv.LabelAnnotator(color=sv.Color.from_bgr_tuple(self.color))
-
         # ── Tracker ─────────────────────────────────────────────────────────
         tracker = sv.ByteTrack()
 
@@ -45,6 +41,22 @@ class SmokingKPI(BaseKPI):
         hold_frames  = int(alarm_hold_secs * fps)
 
         cap = cv2.VideoCapture(video_path)
+
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        from ...kpis.base import get_dynamic_scale
+        scale = get_dynamic_scale(w, h) if w and h else 1.0
+
+        # ── Supervision annotators ──────────────────────────────────────────
+        box_annotator   = sv.BoxAnnotator(
+            color=sv.Color.from_bgr_tuple(self.color),
+            thickness=max(1, int(round(2 * scale)))
+        )
+        label_annotator = sv.LabelAnnotator(
+            color=sv.Color.from_bgr_tuple(self.color),
+            text_scale=0.5 * scale,
+            text_thickness=max(1, int(round(1 * scale)))
+        )
 
         frame_annotations: list[FrameAnnotation] = []
 
@@ -147,11 +159,11 @@ class SmokingKPI(BaseKPI):
                 cv2.putText(
                     annotated,
                     "!! SMOKING ALARM ACTIVE",
-                    (30, 50),
+                    (max(10, int(30 * scale)), max(20, int(50 * scale))),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0,
+                    1.0 * scale,
                     (0, 0, 255),
-                    2,
+                    max(1, int(round(2 * scale))),
                     cv2.LINE_AA,
                 )
 
