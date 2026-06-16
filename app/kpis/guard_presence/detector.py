@@ -1,4 +1,6 @@
 
+from abc import abstractmethod
+
 import cv2
 from ultralytics import YOLO
 
@@ -20,6 +22,7 @@ class GuardPresenceKPI(BaseKPI):
     display_name = "Guard Presence"
     color        = _COLOR_GUARD
 
+    @abstractmethod
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
         device = settings.DEVICE
         half   = settings.USE_HALF and device != "cpu"
@@ -58,14 +61,16 @@ class GuardPresenceKPI(BaseKPI):
 
             for r in results:
                 for box in r.boxes:
-                    cls_id   = int(box.cls[0])
-                    conf_val = float(box.conf[0])
+                    cls_id = int(box.cls[0])
+                    if cls_id != 0:
+                        continue
+                    conf_val = float(box.conf[0])      
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    cls_name = model.names[cls_id]
-                    detections.append(
-                        Detection(x1, y1, x2, y2, cls_name.upper(), conf_val, color=_COLOR_GUARD)
+                    detections.append(       
+                        Detection(x1, y1, x2, y2, "GUARD", conf_val, color=_COLOR_GUARD)
                     )
                     frame_has_guard = True
+
 
             if frame_has_guard:
                 alert_countdown = hold_frames
