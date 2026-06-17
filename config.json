@@ -16,7 +16,7 @@
     },
 
     "cameras": {
-        "CAM-01": {"name": "WHEEL HOUSE",                        "zone": "bridge",  "priority": "critical", "kpi_ids": [1,7,10,11,13,16,17,20]},
+        "CAM-01": {"name": "WHEEL HOUSE",                        "zone": "bridge",  "priority": "critical", "kpi_ids": [1,5,7,10,11,13,16,17,20]},
         "CAM-02": {"name": "WHEEL HOUSE",                        "zone": "bridge",  "priority": "high",     "kpi_ids": [1,7,10,11,13,16,17,20]},
         "CAM-03": {"name": "RADAR MAST FOR HELIDECK",            "zone": "deck",    "priority": "medium",   "kpi_ids": [1,7,8,11,16,28]},
         "CAM-04": {"name": "TOP OF WHEEL HOUSE FOR LEG 3",       "zone": "deck",    "priority": "critical", "kpi_ids": [1,6,7,18,20,29,30]},
