@@ -6,6 +6,11 @@ import cv2
 import numpy as np
 
 
+def get_dynamic_scale(width: int, height: int) -> float:
+    """Return a scaling multiplier based on frame resolution (anchored at 720p)."""
+    return max(0.3, height / 720.0)
+
+
 @dataclass
 class Detection:
     x1: int
@@ -22,6 +27,7 @@ class FrameAnnotation:
     frame_idx: int
     detections: list[Detection] = field(default_factory=list)
     status_lines: list[str] = field(default_factory=list)
+    extra: Optional[dict] = None
 
 
 @dataclass
@@ -85,18 +91,25 @@ class BaseKPI(ABC):
         from ..config import settings
 
         labeled = frame.copy()
+        h, w = labeled.shape[:2]
+        scale = get_dynamic_scale(w, h)
+        font_scale = 0.5 * scale
+        thickness = max(1, int(round(1 * scale)))
+        box_thickness = max(1, int(round(2 * scale)))
+        pad = max(2, int(round(4 * scale)))
+        
         _font = cv2.FONT_HERSHEY_SIMPLEX
         for det in (detections or []):
             color = det.color if det.color is not None else self.color
-            cv2.rectangle(labeled, (det.x1, det.y1), (det.x2, det.y2), color, 2)
+            cv2.rectangle(labeled, (det.x1, det.y1), (det.x2, det.y2), color, box_thickness)
             label = f"{det.label} {det.confidence:.2f}" if det.confidence < 1.0 else det.label
-            (tw, th), _ = cv2.getTextSize(label, _font, 0.5, 1)
-            bg_y1 = max(0, det.y1 - th - 8)
-            cv2.rectangle(labeled, (det.x1, bg_y1), (det.x1 + tw + 4, det.y1), color, -1)
+            (tw, th), _ = cv2.getTextSize(label, _font, font_scale, thickness)
+            bg_y1 = max(0, det.y1 - th - (pad * 2))
+            cv2.rectangle(labeled, (det.x1, bg_y1), (det.x1 + tw + pad, det.y1), color, -1)
             cv2.putText(
                 labeled, label,
-                (det.x1 + 2, det.y1 - 4 if det.y1 > 14 else det.y1 + th + 4),
-                _font, 0.5, (255, 255, 255), 1,
+                (det.x1 + (pad//2), det.y1 - (pad//2) if det.y1 > 14 else det.y1 + th + (pad//2)),
+                _font, font_scale, (255, 255, 255), thickness,
             )
 
         alert_dir = settings.UPLOAD_DIR.parent / "alerts" / job_id

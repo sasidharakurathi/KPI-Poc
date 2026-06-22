@@ -1,10 +1,17 @@
 {
     "kpi_registry": {
+        "2" : "ANPR_LPR",
+        "4": "speed_tracker",
+        "6":   "ppe",
         "7":  "fire_smoke",
-        "17": "mobile_usage",
         "11": "people_count",
+        "15": "box_counter",
         "16": "occupancy",
-        "24": "people_density_measurement"
+        "17": "mobile_usage",
+        "20": "falling_pose",
+        "24": "density_occupancy",
+        "29": "smoking",
+        "30": "floating"
     },
 
     "cameras": {
@@ -46,9 +53,20 @@
         "CAM-36": {"name": "CRANE #1 CABIN",                     "zone": "crane",   "priority": "high",     "kpi_ids": [1,6,7,17,20,29]}
     },
 
+    "AnprLprKPI": {
+        "enabled": true,
+        "model_path": "app/models/anpr_lpr.pt",
+        "confidence": 0.3,
+        "alert_hold_seconds": 3.0,
+        "frame_skip": 2,
+        "aspect_ratio_min": 0.5,
+        "aspect_ratio_max": 7.0,
+        "min_plate_chars": 4
+    },
+
     "FireSmokeKPI": {
         "enabled": true,
-        "model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\fire-smoke.pt",
+        "model_path": "app/models/fire-smoke.pt",
         "smoke_confidence": 0.28,
         "fire_confidence": 0.50,
         "alarm_frame_threshold": 15,
@@ -57,8 +75,8 @@
 
     "MobileUsageKPI": {
         "enabled": true,
-        "person_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\yolo26s.pt",
-        "phone_model_path": "C:\\Users\\Sasidhar Akurathi\\Desktop\\KPI Poc\\app\\models\\mobile-phone-usage.pt",
+        "person_model_path": "app/models/yolo26s.pt",
+        "phone_model_path": "app/models/mobile-phone-usage.pt",
         "person_confidence": 0.5,
         "phone_confidence": 0.30,
         "vote_window": 20,
@@ -71,7 +89,7 @@
     },
     "PeopleCountKPI": {
         "enabled": true,
-        "model_path": "app/kpis/people_count",
+        "model_path": "app/models/ppl-count-yolo26m.pt",
         "confidence": 0.35,
         "min_box_area": 800,
         "max_pillar_ratio": 4.0,
@@ -84,16 +102,24 @@
 
     "DensityOccupancyKPI": {
     "enabled": true,
+<<<<<<< HEAD
     "model_path": "app/kpis/density_occupancy",
     "confidence": 0.50,
+=======
+    "model_path": "app/models/density-occupancy.pt",
+    "confidence": 0.35,
+>>>>>>> origin/main
     "iou_threshold": 0.50,
     "delay_ms": 33,
     "zone_sqft": 500.0,
     "max_occupancy": 50,
     "alert_hold_frames": 4,
+<<<<<<< HEAD
     "min_box_w": 30,
     "min_box_h": 60,
     "dwell_min_frames": 2,
+=======
+>>>>>>> origin/main
     "density_thresholds": {
         "low":    0.02,
         "medium": 0.05,
@@ -101,6 +127,58 @@
     },
     "save_csv": true,
     "csv_path": "logs/density_occupancy_log.csv"
+<<<<<<< HEAD
 }
+=======
+    },
+
+    "SmokingKPI": {
+        "enabled": true,
+        "model_path": "app/models/smoking.pt",
+        "confidence": 0.40,
+        "alarm_seconds": 1.0,
+        "alert_hold_seconds": 4.0
+    },
+
+    "FloatingKPI": {
+        "enabled": true,
+        "model_path": "app/models/floating.pt",
+        "pose_model_path": "app/models/yolo26s-pose.pt",
+        "confidence": 0.30,
+        "alarm_seconds": 1.0,
+        "alert_hold_seconds": 4.0
+    },
+
+    "PPEKPI": {
+        "enabled": true,
+        "model_path": "app/models/ppe.pt",
+        "pose_model_path": "app/models/yolo26s-pose.pt",
+        "confidence": 0.25,
+        "margin": 0.15,
+        "overlap_threshold": 0.30,
+        "alarm_seconds": 2.0,
+        "alert_hold_seconds": 4.0
+    },
+
+    "FallingPoseKPI": {
+        "enabled": true,
+        "model_path": "app/models/falling-pose.pt",
+        "pose_model_path": "app/models/yolo26s-pose.pt",
+        "confidence": 0.30,
+        "trigger_ratio": 0.80,
+        "window_seconds": 1.0,
+        "alert_hold_seconds": 2.0
+    },
+    "BoxCounterKPI": {
+        "enabled": true ,
+        "model_path": "app/models/carton-box-detection.pt", 
+        "confidence": 0.75
+    },
+    "SpeedTrackerKPI": {
+        "enabled": true ,
+        "model_path": "app/models/vehicle-detection-speed.pt", 
+        "confidence": 0.50
+    }
+>>>>>>> origin/main
 
 }
