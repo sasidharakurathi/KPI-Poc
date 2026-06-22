@@ -41,4 +41,5 @@ resources/
 .env
 .*.env
 storage/
-.claude
+.claudeFire-Smoke-Detection-Yolov11-1/
+yolo11n.pt
