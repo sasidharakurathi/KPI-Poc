@@ -9,17 +9,44 @@ from .kpis import get_registered_kpis
 from .kpis.base import KPIResult
 from .schemas import JobStatus
 from .config import settings
+from .kpi_logger import (
+    KPIMetricsCollector,
+    ModelRunLog,
+    PipelineRunLog,
+    collect_system_info,
+    write_pipeline_log,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _run_kpi(kpi, video_path: str, job_id: str) -> tuple[str, KPIResult, float]:
+def _run_kpi(
+    kpi, video_path: str, job_id: str, device: str
+) -> tuple[str, Optional[KPIResult], float, KPIMetricsCollector, Optional[Exception]]:
+    """
+    Run one KPI, collect compute metrics, and return all data without raising.
+    Exceptions are returned as the last element so the caller can re-raise or log them.
+    """
     logger.info(f"[{kpi.name}] starting")
     t0 = time.perf_counter()
-    result = kpi.process_video(video_path, job_id=job_id)
-    elapsed = time.perf_counter() - t0
-    logger.info(f"[{kpi.name}] done in {elapsed:.2f}s — {result.summary}")
-    return kpi.name, result, elapsed
+    exc_store: Optional[Exception] = None
+    result: Optional[KPIResult] = None
+
+    with KPIMetricsCollector(kpi, device) as coll:
+        try:
+            result = kpi.process_video(video_path, job_id=job_id)
+        except Exception as exc:
+            exc_store = exc
+        finally:
+            elapsed = time.perf_counter() - t0
+            coll.record(elapsed, result, error=str(exc_store) if exc_store else None)
+
+    if exc_store:
+        logger.error(f"[{kpi.name}] failed in {elapsed:.2f}s: {exc_store}", exc_info=exc_store)
+    else:
+        logger.info(f"[{kpi.name}] done in {elapsed:.2f}s — {result.summary}")
+
+    return kpi.name, result, elapsed, coll, exc_store
 
 
 def run_pipeline(
@@ -58,21 +85,28 @@ def run_pipeline(
 
         kpi_results: dict[str, KPIResult] = {}
         kpi_timings: dict[str, float] = {}
+        model_logs: list[ModelRunLog] = []
         workers = min(len(kpis), settings.MAX_WORKERS)
+        device = settings.DEVICE
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(_run_kpi, kpi, video_path, job_id): kpi.name
+                executor.submit(_run_kpi, kpi, video_path, job_id, device): kpi.name
                 for kpi in kpis
             }
             for future in as_completed(futures):
                 kpi_name = futures[future]
                 try:
-                    name, result, elapsed = future.result()
-                    kpi_results[name] = result
-                    kpi_timings[name] = round(elapsed, 2)
+                    name, result, elapsed, coll, exc = future.result()
+                    if coll:
+                        model_logs.extend(coll.to_model_logs())
+                    if exc:
+                        logger.error(f"[{kpi_name}] KPI failed — excluded from output")
+                    else:
+                        kpi_results[name] = result
+                        kpi_timings[name] = round(elapsed, 2)
                 except Exception as exc:
-                    logger.error(f"[{kpi_name}] failed: {exc}", exc_info=True)
+                    logger.error(f"[{kpi_name}] unexpected executor error: {exc}", exc_info=True)
 
         if not kpi_results:
             raise RuntimeError("All KPIs failed — no results to compose.")
@@ -87,6 +121,28 @@ def run_pipeline(
             f"[pipeline] job {job_id} completed in {total_elapsed:.2f}s — "
             f"KPIs: {kpi_timings} | compose: {compose_elapsed:.2f}s → {output_path}"
         )
+
+        # Write compute/performance log (non-critical — never blocks the job result)
+        try:
+            run_log = PipelineRunLog(
+                job_id=job_id,
+                timestamp_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                video_path=video_path,
+                total_pipeline_sec=round(total_elapsed, 3),
+                compose_time_sec=round(compose_elapsed, 3),
+                thread_workers=workers,
+                system=collect_system_info(device),
+                models=model_logs,
+                notes=[
+                    "CPU/RAM are process-level (this PID only). KPIs run concurrently so "
+                    "sibling KPIs slightly raise each other's baseline.",
+                    "Multi-model KPIs (PPE, Floating, MobileUsage, FallingPose) emit one "
+                    "entry per .pt file but share the same KPI-level measurements.",
+                ],
+            )
+            write_pipeline_log(run_log)
+        except Exception as log_exc:
+            logger.warning(f"[kpi_logger] failed to write run log: {log_exc}")
 
         summaries = {name: r.summary for name, r in kpi_results.items()}
         job_manager.update(
