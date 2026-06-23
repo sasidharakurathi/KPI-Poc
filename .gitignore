@@ -43,3 +43,5 @@ resources/
 storage/
 .claudeFire-Smoke-Detection-Yolov11-1/
 yolo11n.pt
+Fire-Smoke-Detection-Yolov11-1/
+yolo11n.pt
