@@ -1,70 +1,68 @@
 import cv2
-import os
-import supervision as sv
 from ultralytics import YOLO
-from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
+
+from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
+
 
 @register_kpi
 class BoxCounterKPI(BaseKPI):
     name = "object_detection"
     display_name = "Object Detection and Counting"
-    color = (0, 255, 0)  # Green for detections
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
-        model_path = self._get("model_path", "best.pt")
-        conf_threshold = self._get("confidence", 0.75)
+        device = settings.DEVICE
+        half   = settings.USE_HALF and device != "cpu"
+
+        model_path   = self._get("model_path",  "app/models/carton-box-detection.pt")
+        conf         = self._get("confidence",  0.75)
+        frame_stride = max(1, self._get("frame_stride", 2))
+
         model = YOLO(model_path)
-        
-        cap = cv2.VideoCapture(video_path)
-        
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        from ...kpis.base import get_dynamic_scale
-        scale = get_dynamic_scale(w, h) if w and h else 1.0
+        cap   = cv2.VideoCapture(video_path)
 
-        box_annotator = sv.BoxAnnotator(thickness=max(1, int(round(2 * scale))))
-        label_annotator = sv.LabelAnnotator(
-            text_scale=0.5 * scale,
-            text_thickness=max(1, int(round(1 * scale))),
-            text_position=sv.Position.TOP_CENTER
-        )
-
-        frame_annotations = []
-        frame_idx = 0
+        alert_fired = False
+        alert_events = 0
+        frame_idx    = 0
 
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
 
-            results = model(frame, conf=conf_threshold, verbose=False)[0]
-            detections = sv.Detections.from_ultralytics(results)
-            
-            # Prepare data for BaseKPI structure
-            frame_dets = []
-            status_lines = []
-            
-            if detections is not None and len(detections) > 0:
-                for i in range(len(detections)):
-                    box = detections.xyxy[i]
-                    class_id = detections.class_id[i]
-                    confidence = detections.confidence[i]
-                    label_text = f"{model.names[class_id]}"
-                    
-                    frame_dets.append(Detection(
-                        int(box[0]), int(box[1]), int(box[2]), int(box[3]), 
-                        label_text, float(confidence)
-                    ))
-                
-                status_lines.append(f"Objects Detected: {len(detections)}")
+            self._observe(frame, frame_idx, job_id)
 
-            frame_annotations.append(FrameAnnotation(frame_idx, frame_dets, status_lines))
+            if frame_idx % frame_stride != 0:
+                frame_idx += 1
+                continue
+
+            results = model(frame, conf=conf, device=device, half=half, verbose=False)
+            r = results[0]
+
+            if len(r.boxes) > 0 and not alert_fired:
+                alert_fired = True
+                alert_events += 1
+                n = len(r.boxes)
+                boxes = []
+                for j in range(n):
+                    bx = r.boxes.xyxy[j].int().tolist()
+                    cls_id = int(r.boxes.cls[j])
+                    label  = str(model.names.get(cls_id, "obj"))
+                    boxes.append((*bx, label, (0, 255, 0)))
+                self._save_alert(
+                    "objects_detected", job_id, frame_idx,
+                    extra={"object_count": n},
+                    boxes=boxes,
+                )
+
             frame_idx += 1
 
         cap.release()
-        return KPIResult(self.name, self.display_name, self.color, frame_annotations, {"total_frames": frame_idx})
+        self._finalize()
+
+        return KPIResult(self.name, self.display_name, {
+            "alert_events": alert_events,
+            "total_frames": frame_idx,
+            "device":       device,
+        })

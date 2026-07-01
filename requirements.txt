@@ -16,4 +16,5 @@ ultralytics
 supervision
 shapely
 easyocr
-supervision
+sqlmodel
+psycopg[binary]

@@ -1,203 +1,136 @@
-import cv2
-import supervision as sv
-from collections import defaultdict
-from ultralytics import YOLO
+"""
+Smoking KPI — 2-stage pipeline.
 
-from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
+Stage 1: YOLO person detector + ByteTrack → tracked persons
+Stage 2: Batched cigarette model on upper-body crops → per-person hit counter
+
+A person is flagged as smoking when their hit counter reaches `consecutive_frames`.
+Counter is incremented on detection, decremented on miss (clamped to [0, max_counter_limit]).
+One alert fires per track (on first threshold crossing).
+"""
+import cv2
+import numpy as np
+import supervision as sv
+from ultralytics import YOLO
+from collections import defaultdict
+
+from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
 
 
-_DEFAULT_MODEL_PATH      = "app/models/smoking.pt"
-_DEFAULT_CONF            = 0.40
-_DEFAULT_ALARM_SECS      = 1.0
-_DEFAULT_ALARM_HOLD_SECS = 4.0
-
-
 @register_kpi
 class SmokingKPI(BaseKPI):
-    name         = "smoking"
+    name = "smoking"
     display_name = "Smoking"
-    color        = (0, 255, 255)
 
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
         device = settings.DEVICE
         half   = settings.USE_HALF and device != "cpu"
 
-        model_path      = self._get("model_path",         _DEFAULT_MODEL_PATH)
-        conf            = self._get("confidence",         _DEFAULT_CONF)
-        alarm_secs      = self._get("alarm_seconds",      _DEFAULT_ALARM_SECS)
-        alarm_hold_secs = self._get("alert_hold_seconds", _DEFAULT_ALARM_HOLD_SECS)
+        person_model_path = self._get("person_model_path",   "app/models/yolo26m.pt")
+        cig_model_path    = self._get("cigarette_model_path","app/models/cigarette.pt")
+        person_conf       = self._get("person_confidence",   0.40)
+        cig_conf          = self._get("cigarette_confidence",0.45)
+        consec_frames     = self._get("consecutive_frames",  8)
+        max_limit         = self._get("max_counter_limit",   15)
+        upper_frac        = self._get("upper_body_fraction", 0.60)
+        cig_imgsz         = self._get("cigarette_imgsz",     320)
+        frame_stride      = max(1, self._get("frame_stride", 3))
 
-        model = YOLO(model_path)
-
-        # ── Tracker ─────────────────────────────────────────────────────────
-        tracker = sv.ByteTrack()
-
-        # ── Video info ──────────────────────────────────────────────────────
-        video_info   = sv.VideoInfo.from_video_path(video_path)
-        fps          = video_info.fps or 25
-        alarm_frames = int(alarm_secs * fps)
-        hold_frames  = int(alarm_hold_secs * fps)
+        person_model = YOLO(person_model_path)
+        cig_model    = YOLO(cig_model_path)
+        tracker      = sv.ByteTrack()
 
         cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        fw  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        fh  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        from ...kpis.base import get_dynamic_scale
-        scale = get_dynamic_scale(w, h) if w and h else 1.0
-
-        # ── Supervision annotators ──────────────────────────────────────────
-        box_annotator   = sv.BoxAnnotator(
-            color=sv.Color.from_bgr_tuple(self.color),
-            thickness=max(1, int(round(2 * scale)))
-        )
-        label_annotator = sv.LabelAnnotator(
-            color=sv.Color.from_bgr_tuple(self.color),
-            text_scale=0.5 * scale,
-            text_thickness=max(1, int(round(1 * scale)))
-        )
-
-        frame_annotations: list[FrameAnnotation] = []
-
-        # ── Per-track state ─────────────────────────────────────────────────
-        track_frame_counts: dict[int, int] = defaultdict(int)
-        track_last_seen:    dict[int, int] = defaultdict(int)
-        alarmed_ids:        set[int]       = set()
-        alarm_hold_until:   dict[int, int] = {}
-
-        smoke_alarm_active = False
-        frame_idx = 0
+        track_history: dict[int, int] = defaultdict(int)
+        alarmed_ids:   set[int]       = set()
+        alert_events = 0
+        frame_idx    = 0
 
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
 
-            # ── Inference ───────────────────────────────────────────────────
-            results = model.predict(
-                source=frame,
-                device=device,
-                half=half,
-                conf=conf,
-                verbose=False,
+            self._observe(frame, frame_idx, job_id)
+
+            if frame_idx % frame_stride != 0:
+                frame_idx += 1
+                continue
+
+            # ── Stage 1: detect + track persons ───────────────────────────────
+            det_res = person_model.predict(
+                frame, conf=person_conf, classes=[0],
+                device=device, half=half, verbose=False,
             )
+            sv_dets = sv.Detections.from_ultralytics(det_res[0])
+            if len(sv_dets) > 0:
+                sv_dets = tracker.update_with_detections(sv_dets)
 
-            # ── Convert to sv.Detections ────────────────────────────────────
-            sv_detections = sv.Detections.from_ultralytics(results[0])
+            if len(sv_dets) == 0 or sv_dets.tracker_id is None:
+                frame_idx += 1
+                continue
 
-            # ── Track ───────────────────────────────────────────────────────
-            if len(sv_detections) > 0:
-                sv_detections = tracker.update_with_detections(sv_detections)
+            # ── Stage 2: collect upper-body crops (batched) ───────────────────
+            crops:        list[np.ndarray] = []
+            crop_to_idx:  list[int]        = []
 
-            # ── Per-track persistence logic ─────────────────────────────────
-            detections: list[Detection] = []
-            labels:     list[str]       = []
+            persons = list(zip(sv_dets.tracker_id, sv_dets.xyxy))
+            for pidx, (tid, bbox) in enumerate(persons):
+                x1, y1, x2, y2 = map(int, bbox)
+                roi_h = int((y2 - y1) * upper_frac)
+                cy1 = max(0, y1); cy2 = min(fh, y1 + roi_h)
+                cx1 = max(0, x1); cx2 = min(fw, x2)
+                crop = frame[cy1:cy2, cx1:cx2]
+                if crop.size > 0:
+                    crops.append(crop)
+                    crop_to_idx.append(pidx)
 
-            if len(sv_detections) > 0 and sv_detections.tracker_id is not None:
-                for i, tracker_id in enumerate(sv_detections.tracker_id):
-                    if tracker_id is None:
-                        continue
+            # ── One batched GPU call ───────────────────────────────────────────
+            cig_hit: dict[int, bool] = {}
+            if crops:
+                cig_res = cig_model(
+                    crops, conf=cig_conf, imgsz=cig_imgsz,
+                    device=device, half=half, verbose=False,
+                )
+                for j, cr in enumerate(cig_res):
+                    pidx = crop_to_idx[j]
+                    cig_hit[pidx] = len(cr.boxes) > 0
 
-                    x1, y1, x2, y2 = map(int, sv_detections.xyxy[i])
-                    conf_val = (
-                        float(sv_detections.confidence[i])
-                        if sv_detections.confidence is not None
-                        else conf
+            # ── Update counters & fire alerts ──────────────────────────────────
+            for pidx, (tid, bbox) in enumerate(persons):
+                if tid is None:
+                    continue
+                tid = int(tid)
+                hit = cig_hit.get(pidx, False)
+                if hit:
+                    track_history[tid] = min(max_limit, track_history[tid] + 1)
+                else:
+                    track_history[tid] = max(0, track_history[tid] - 1)
+
+                if track_history[tid] >= consec_frames and tid not in alarmed_ids:
+                    alarmed_ids.add(tid)
+                    alert_events += 1
+                    x1, y1, x2, y2 = map(int, bbox)
+                    self._save_alert(
+                        "smoking_alarm", job_id, frame_idx,
+                        extra={"tracker_id": tid, "counter": track_history[tid]},
+                        boxes=[(x1, y1, x2, y2, f"#{tid} SMOKING", (0, 255, 255))],
                     )
 
-                    track_frame_counts[tracker_id] += 1
-                    track_last_seen[tracker_id]     = frame_idx
-
-                    visible_secs = track_frame_counts[tracker_id] / fps
-                    is_alarm     = track_frame_counts[tracker_id] >= alarm_frames
-
-                    if is_alarm and tracker_id not in alarmed_ids:
-                        alarmed_ids.add(tracker_id)
-                        alarm_hold_until[tracker_id] = frame_idx + hold_frames
-                        if job_id:
-                            self._save_alert(
-                                frame,
-                                "smoking_alarm",
-                                job_id,
-                                frame_idx,
-                                extra={
-                                    "tracker_id":   int(tracker_id),
-                                    "visible_secs": float(visible_secs),
-                                },
-                            )
-
-                    # extend hold window while cigarette is still visible
-                    if tracker_id in alarmed_ids:
-                        alarm_hold_until[tracker_id] = frame_idx + hold_frames
-
-                    label = f"#{int(tracker_id)} {visible_secs:.1f}s"
-                    if is_alarm:
-                        label += " ALARM"
-                    labels.append(label)
-
-                    detections.append(Detection(x1, y1, x2, y2, "smoking", conf_val))
-
-            # ── Update global alarm active flag ─────────────────────────────
-            smoke_alarm_active = any(
-                frame_idx <= alarm_hold_until.get(tid, -1)
-                for tid in alarmed_ids
-            )
-
-            # ── Annotate frame ──────────────────────────────────────────────
-            annotated = frame.copy()
-            if len(sv_detections) > 0:
-                annotated = box_annotator.annotate(
-                    scene=annotated, detections=sv_detections
-                )
-                if labels:
-                    annotated = label_annotator.annotate(
-                        scene=annotated, detections=sv_detections, labels=labels
-                    )
-
-            if smoke_alarm_active:
-                cv2.putText(
-                    annotated,
-                    "!! SMOKING ALARM ACTIVE",
-                    (max(10, int(30 * scale)), max(20, int(50 * scale))),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0 * scale,
-                    (0, 0, 255),
-                    max(1, int(round(2 * scale))),
-                    cv2.LINE_AA,
-                )
-
-            # ── Build FrameAnnotation ───────────────────────────────────────
-            status_lines: list[str] = []
-            if smoke_alarm_active:
-                status_lines.append("!! SMOKING ALARM ACTIVE")
-
-            frame_annotations.append(
-                FrameAnnotation(
-                    frame_idx=frame_idx,
-                    detections=detections,
-                    status_lines=status_lines,
-                )
-            )
             frame_idx += 1
 
         cap.release()
+        self._finalize()
 
-        frames_with_smoking = sum(
-            1 for fa in frame_annotations
-            if any(d.label == "smoking" for d in fa.detections)
-        )
-
-        return KPIResult(
-            kpi_name=self.name,
-            display_name=self.display_name,
-            color=self.color,
-            frame_annotations=frame_annotations,
-            summary={
-                "frames_with_smoking":  frames_with_smoking,
-                "alarm_triggered":      len(alarmed_ids) > 0,
-                "unique_smokers_found": len(alarmed_ids),
-                "total_frames":         frame_idx,
-                "device":               device,
-            },
-        )
+        return KPIResult(self.name, self.display_name, {
+            "alert_events":        alert_events,
+            "unique_smokers_found": len(alarmed_ids),
+            "total_frames":        frame_idx,
+            "device":              device,
+        })

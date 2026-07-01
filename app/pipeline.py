@@ -3,7 +3,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
-from .compositor import compose_video
 from .job_manager import job_manager
 from .kpis import get_registered_kpis
 from .kpis.base import KPIResult
@@ -23,10 +22,6 @@ logger = logging.getLogger(__name__)
 def _run_kpi(
     kpi, video_path: str, job_id: str, device: str
 ) -> tuple[str, Optional[KPIResult], float, KPIMetricsCollector, Optional[Exception]]:
-    """
-    Run one KPI, collect compute metrics, and return all data without raising.
-    Exceptions are returned as the last element so the caller can re-raise or log them.
-    """
     logger.info(f"[{kpi.name}] starting")
     t0 = time.perf_counter()
     exc_store: Optional[Exception] = None
@@ -52,16 +47,8 @@ def _run_kpi(
 def run_pipeline(
     job_id: str,
     video_path: str,
-    output_path: str,
     kpi_names: Optional[list[str]] = None,
 ) -> None:
-    """
-    Entry point called as a FastAPI background task.
-
-    Args:
-        kpi_names: If provided, only the KPIs whose name is in this list
-                   will run. Pass None to run every registered KPI (default).
-    """
     job_manager.update(job_id, JobStatus.PROCESSING)
     pipeline_start = time.perf_counter()
     logger.info(f"[pipeline] job {job_id} started — filter: {kpi_names or 'all'}")
@@ -109,35 +96,28 @@ def run_pipeline(
                     logger.error(f"[{kpi_name}] unexpected executor error: {exc}", exc_info=True)
 
         if not kpi_results:
-            raise RuntimeError("All KPIs failed — no results to compose.")
-
-        compose_start = time.perf_counter()
-        logger.info(f"[pipeline] compositing {len(kpi_results)} KPI result(s)")
-        compose_video(video_path, kpi_results, output_path)
-        compose_elapsed = time.perf_counter() - compose_start
+            raise RuntimeError("All KPIs failed — no results produced.")
 
         total_elapsed = time.perf_counter() - pipeline_start
         logger.info(
             f"[pipeline] job {job_id} completed in {total_elapsed:.2f}s — "
-            f"KPIs: {kpi_timings} | compose: {compose_elapsed:.2f}s → {output_path}"
+            f"KPIs: {kpi_timings}"
         )
 
-        # Write compute/performance log (non-critical — never blocks the job result)
         try:
             run_log = PipelineRunLog(
                 job_id=job_id,
                 timestamp_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 video_path=video_path,
                 total_pipeline_sec=round(total_elapsed, 3),
-                compose_time_sec=round(compose_elapsed, 3),
+                compose_time_sec=0.0,
                 thread_workers=workers,
                 system=collect_system_info(device),
                 models=model_logs,
                 notes=[
                     "CPU/RAM are process-level (this PID only). KPIs run concurrently so "
                     "sibling KPIs slightly raise each other's baseline.",
-                    "Multi-model KPIs (PPE, Floating, MobileUsage, FallingPose) emit one "
-                    "entry per .pt file but share the same KPI-level measurements.",
+                    "Detections save an 8-frame raw clip window to disk + DB; no video output.",
                 ],
             )
             write_pipeline_log(run_log)
@@ -145,12 +125,7 @@ def run_pipeline(
             logger.warning(f"[kpi_logger] failed to write run log: {log_exc}")
 
         summaries = {name: r.summary for name, r in kpi_results.items()}
-        job_manager.update(
-            job_id,
-            JobStatus.COMPLETED,
-            output_path=output_path,
-            kpi_results=summaries,
-        )
+        job_manager.update(job_id, JobStatus.COMPLETED, kpi_results=summaries)
 
     except Exception as exc:
         logger.error(f"[pipeline] job {job_id} failed: {exc}", exc_info=True)

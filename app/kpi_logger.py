@@ -497,7 +497,7 @@ class KPIMetricsCollector:
         error: Optional[str] = None,
     ) -> None:
         self._elapsed = elapsed
-        self._frames  = len(result.frame_annotations) if result else 0
+        self._frames  = result.summary.get("total_frames", 0) if result else 0
         self._fps     = round(self._frames / elapsed, 2) if elapsed > 0 else 0.0
         self._status  = "success" if error is None else "failed"
         self._error   = error

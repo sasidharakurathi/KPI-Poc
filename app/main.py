@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from . import kpis as _kpis_pkg
-from .alert_db import init_db, query_alerts
+from .db import init_db, query_alerts, get_alert
 from .config import settings
 from .config_loader import (
     get_all as get_full_config,
@@ -37,16 +37,17 @@ from .schemas import (
 logging.basicConfig(level=logging.INFO)
 
 settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-settings.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+settings.ALERTS_DIR.mkdir(parents=True, exist_ok=True)
 init_db()
 
 app = FastAPI(
     title="KPI Video Analytics",
     description=(
         "Upload a video for a specific camera position, run the camera's assigned "
-        "KPI models in parallel, and download the annotated result."
+        "KPI models in parallel, and review the saved detection clips (8 raw frames "
+        "per detection)."
     ),
-    version="1.0.0",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -59,7 +60,6 @@ app.add_middleware(
 
 _ALLOWED_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 
-# Full KPI label list
 _KPI_LABELS: dict[int, str] = {
     1: "Unauthorized Access",          2: "ANPR Detection",
     3: "Intrusion Detection",          4: "Vehicle Detection",
@@ -86,7 +86,6 @@ async def health():
 
 @app.get("/api/kpis", response_model=RegisteredKPIsResponse)
 async def list_kpis():
-    """KPIs that are registered and enabled — will run when assigned to a camera."""
     kpis = get_registered_kpis()
     return RegisteredKPIsResponse(
         count=len(kpis),
@@ -96,13 +95,11 @@ async def list_kpis():
 
 @app.get("/api/config")
 async def view_config():
-    """Return the current contents of config.json."""
     return get_full_config()
 
 
 @app.post("/api/config/reload")
 async def hot_reload_config():
-    """Re-read config.json from disk. Takes effect on the next job."""
     new_cfg = reload_config()
     return {"message": "config.json reloaded", "config": new_cfg}
 
@@ -113,16 +110,47 @@ async def get_alerts(
     kpi_name: Optional[str] = None,
     limit: int = 200,
 ):
-    """
-    Query saved alerts from the database.
-    Filter by job_id and/or kpi_name. Each row includes the saved frame path.
-    """
+    """Query saved detections. Each alert includes its saved clip frames."""
     return query_alerts(job_id=job_id, kpi_name=kpi_name, limit=limit)
+
+
+@app.get("/api/alerts/{alert_id}")
+async def get_alert_detail(alert_id: int):
+    alert = get_alert(alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail=f"Alert '{alert_id}' not found.")
+    return alert
+
+
+@app.get("/api/alerts/{alert_id}/frames/{position}")
+async def get_alert_frame(alert_id: int, position: int):
+    """Serve one raw frame image (0-based position) from a detection's clip window."""
+    alert = get_alert(alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail=f"Alert '{alert_id}' not found.")
+    match = next((f for f in alert.get("frames", []) if f["position"] == position), None)
+    if not match or not Path(match["path"]).exists():
+        raise HTTPException(status_code=404, detail="Frame not found.")
+    return FileResponse(path=match["path"], media_type="image/jpeg")
+
+
+@app.get("/api/alerts/{alert_id}/labeled")
+async def get_alert_labeled_frame(alert_id: int):
+    """Serve the single labeled anchor-frame image (dev mode only)."""
+    alert = get_alert(alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail=f"Alert '{alert_id}' not found.")
+    match = next((f for f in alert.get("frames", []) if f.get("labeled_path")), None)
+    if not match or not Path(match["labeled_path"]).exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Labeled frame not available (job not run in developer mode).",
+        )
+    return FileResponse(path=match["labeled_path"], media_type="image/jpeg")
 
 
 @app.get("/api/cameras", response_model=CameraListResponse)
 async def list_cameras():
-    """List all camera positions with their KPI counts."""
     registry = get_kpi_registry()
     implemented_names = set(list_registered_names())
     cameras = get_cameras()
@@ -148,7 +176,6 @@ async def list_cameras():
 
 @app.get("/api/cameras/{camera_id}", response_model=CameraInfo)
 async def get_camera_detail(camera_id: str):
-    """Full detail for one camera: every KPI it needs and which are implemented."""
     cam = get_camera(camera_id)
     if not cam:
         raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
@@ -175,21 +202,13 @@ async def get_camera_detail(camera_id: str):
         kpis=kpis_detail,
     )
 
+
 @app.post("/api/videos/upload", response_model=UploadResponse, status_code=202)
 async def upload_video(
     background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File(description="Video file to analyse")],
     camera_id: Annotated[Optional[str], Form(description="Camera position ID (e.g. CAM-01)")] = None,
 ):
-    """
-    Upload a video and optionally specify a camera position.
-
-    - If **camera_id** is provided, only the KPIs assigned to that camera run.
-    - If omitted, every registered KPI runs (useful for ad-hoc testing).
-
-    Processing starts immediately in the background.
-    Poll `/api/videos/{job_id}/status` to track progress.
-    """
     suffix = Path(file.filename).suffix.lower()
     if suffix not in _ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -197,10 +216,9 @@ async def upload_video(
             detail=f"Unsupported file type '{suffix}'. Allowed: {sorted(_ALLOWED_EXTENSIONS)}",
         )
 
-    # Resolve camera → KPI names
     camera_name: Optional[str] = None
     kpis_requested: list[str] = []
-    kpi_names_to_run: Optional[list[str]] = None  # None = run all
+    kpi_names_to_run: Optional[list[str]] = None
 
     if camera_id:
         cam = get_camera(camera_id)
@@ -208,15 +226,13 @@ async def upload_video(
             raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
         camera_name = cam["name"]
         kpis_requested = resolve_kpi_names(cam.get("kpi_ids", []))
-        kpi_names_to_run = kpis_requested  # only run what the camera needs
+        kpi_names_to_run = kpis_requested
 
-    # Derive which of those are actually implemented
     implemented = set(list_registered_names())
     kpis_running = [n for n in (kpis_requested or list_registered_names()) if n in implemented]
 
     job_id = str(uuid.uuid4())
     upload_path = settings.UPLOAD_DIR / f"{job_id}{suffix}"
-    output_path = str(settings.PROCESSED_DIR / f"{job_id}_processed.mp4")
 
     with upload_path.open("wb") as fp:
         while chunk := await file.read(1024 * 1024):
@@ -230,7 +246,7 @@ async def upload_video(
         camera_name=camera_name,
         kpis_running=kpis_running,
     )
-    background_tasks.add_task(run_pipeline, job_id, str(upload_path), output_path, kpi_names_to_run)
+    background_tasks.add_task(run_pipeline, job_id, str(upload_path), kpi_names_to_run)
 
     return UploadResponse(
         job_id=job_id,
@@ -249,9 +265,9 @@ async def upload_video(
         ),
     )
 
+
 @app.get("/api/videos/{job_id}/status", response_model=JobStatusResponse)
 async def get_job_status(job_id: str):
-    """Check processing status and per-KPI summary results."""
     job = job_manager.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
@@ -268,23 +284,11 @@ async def get_job_status(job_id: str):
         error=job.error,
     )
 
-@app.get("/api/videos/{job_id}/download")
-async def download_processed_video(job_id: str):
-    """Stream the annotated output video. Only available once status is `completed`."""
+
+@app.get("/api/videos/{job_id}/alerts")
+async def get_job_alerts(job_id: str, kpi_name: Optional[str] = None, limit: int = 200):
+    """All detections saved for a job (each with its clip window frames)."""
     job = job_manager.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
-    if job.status != JobStatus.COMPLETED:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Video not ready. Current status: '{job.status}'.",
-        )
-    if not job.output_path or not Path(job.output_path).exists():
-        raise HTTPException(status_code=500, detail="Processed video file missing on server.")
-
-    stem = Path(job.filename).stem
-    return FileResponse(
-        path=job.output_path,
-        media_type="video/mp4",
-        filename=f"{stem}_processed.mp4",
-    )
+    return query_alerts(job_id=job_id, kpi_name=kpi_name, limit=limit)
