@@ -58,7 +58,6 @@ class JobManager:
         self,
         job_id: str,
         status: JobStatus,
-        output_path: Optional[str] = None,   # accepted but unused (no video output)
         kpi_results: Optional[dict[str, Any]] = None,
         error: Optional[str] = None,
     ) -> None:

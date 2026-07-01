@@ -74,3 +74,30 @@ class CameraListItem(BaseModel):
 class CameraListResponse(BaseModel):
     count: int
     cameras: list[CameraListItem]
+
+
+class CameraCreate(BaseModel):
+    camera_id: str
+    name: str
+    zone: str = ""
+    priority: str = "medium"
+    kpi_ids: list[int] = []
+
+
+class CameraUpdate(BaseModel):
+    name: Optional[str] = None
+    zone: Optional[str] = None
+    priority: Optional[str] = None
+    kpi_ids: Optional[list[int]] = None
+
+
+class KPISettingsItem(BaseModel):
+    name: str
+    display_name: str
+    enabled: bool
+    config: dict[str, Any]
+
+
+class KPISettingsResponse(BaseModel):
+    count: int
+    kpis: list[KPISettingsItem]

@@ -23,15 +23,10 @@ class Settings(BaseSettings):
     MAX_WORKERS: int = 4
 
     FIRE_SMOKE_MODEL_PATH: Optional[Path] = None
-    MOBILE_PERSON_MODEL_PATH: Optional[Path] = None
-    MOBILE_PHONE_MODEL_PATH: Optional[Path] = None
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
-    @field_validator(
-        "FIRE_SMOKE_MODEL_PATH", "MOBILE_PERSON_MODEL_PATH", "MOBILE_PHONE_MODEL_PATH",
-        mode="before",
-    )
+    @field_validator("FIRE_SMOKE_MODEL_PATH", mode="before")
     @classmethod
     def resolve_path(cls, v: Optional[str]) -> Optional[Path]:
         if v is None:

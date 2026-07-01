@@ -68,6 +68,18 @@ class AlertFrame(SQLModel, table=True):
     alert: Optional[Alert] = Relationship(back_populates="frames")
 
 
+class Camera(SQLModel, table=True):
+    __tablename__ = "cameras"  # type: ignore[assignment]
+
+    camera_id: str = Field(primary_key=True)
+    name: str
+    zone: str = ""
+    priority: str = "medium"
+    kpi_ids: list = Field(default_factory=list, sa_column=Column(_JSON))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── Engine ────────────────────────────────────────────────────────────────────
 
 def get_engine():
@@ -180,6 +192,91 @@ def get_job(job_id: str) -> Optional[Job]:
         return session.get(Job, job_id)
 
 
+# ── Camera helpers ───────────────────────────────────────────────────────────
+
+def seed_cameras(cameras: dict[str, dict]) -> None:
+    """Insert cameras from a {camera_id: {...}} dict, skipping ones that already exist."""
+    with get_session() as session:
+        existing = set(session.exec(select(Camera.camera_id)).all())
+        for camera_id, cam in cameras.items():
+            if camera_id in existing:
+                continue
+            session.add(Camera(
+                camera_id=camera_id,
+                name=cam["name"],
+                zone=cam.get("zone", ""),
+                priority=cam.get("priority", "medium"),
+                kpi_ids=cam.get("kpi_ids", []),
+            ))
+        session.commit()
+
+
+def list_cameras() -> list[Camera]:
+    with get_session() as session:
+        return list(session.exec(select(Camera).order_by(Camera.camera_id)).all())  # type: ignore[arg-type]
+
+
+def get_camera(camera_id: str) -> Optional[Camera]:
+    with get_session() as session:
+        return session.get(Camera, camera_id)
+
+
+def create_camera(
+    camera_id: str,
+    name: str,
+    zone: str = "",
+    priority: str = "medium",
+    kpi_ids: Optional[list[int]] = None,
+) -> Camera:
+    with get_session() as session:
+        if session.get(Camera, camera_id):
+            raise ValueError(f"Camera '{camera_id}' already exists.")
+        camera = Camera(
+            camera_id=camera_id, name=name, zone=zone,
+            priority=priority, kpi_ids=kpi_ids or [],
+        )
+        session.add(camera)
+        session.commit()
+        session.refresh(camera)
+        return camera
+
+
+def update_camera(
+    camera_id: str,
+    name: Optional[str] = None,
+    zone: Optional[str] = None,
+    priority: Optional[str] = None,
+    kpi_ids: Optional[list[int]] = None,
+) -> Optional[Camera]:
+    with get_session() as session:
+        camera = session.get(Camera, camera_id)
+        if not camera:
+            return None
+        if name is not None:
+            camera.name = name
+        if zone is not None:
+            camera.zone = zone
+        if priority is not None:
+            camera.priority = priority
+        if kpi_ids is not None:
+            camera.kpi_ids = kpi_ids
+        camera.updated_at = datetime.utcnow()
+        session.add(camera)
+        session.commit()
+        session.refresh(camera)
+        return camera
+
+
+def delete_camera(camera_id: str) -> bool:
+    with get_session() as session:
+        camera = session.get(Camera, camera_id)
+        if not camera:
+            return False
+        session.delete(camera)
+        session.commit()
+        return True
+
+
 # ── Read helpers ──────────────────────────────────────────────────────────────
 
 def _alert_to_dict(alert: Alert, session: Session) -> dict:
@@ -188,9 +285,12 @@ def _alert_to_dict(alert: Alert, session: Session) -> dict:
         .where(AlertFrame.alert_id == alert.id)
         .order_by(AlertFrame.position)  # type: ignore[arg-type]
     ).all()
+    job = session.get(Job, alert.job_id)
     return {
         "id": alert.id,
         "job_id": alert.job_id,
+        "camera_id": job.camera_id if job else None,
+        "camera_name": job.camera_name if job else None,
         "kpi_name": alert.kpi_name,
         "alert_type": alert.alert_type,
         "frame_idx": alert.frame_idx,
@@ -213,6 +313,7 @@ def _alert_to_dict(alert: Alert, session: Session) -> dict:
 def query_alerts(
     job_id: Optional[str] = None,
     kpi_name: Optional[str] = None,
+    camera_id: Optional[str] = None,
     limit: int = 200,
 ) -> list[dict]:
     with get_session() as session:
@@ -221,7 +322,9 @@ def query_alerts(
             stmt = stmt.where(Alert.job_id == job_id)
         if kpi_name:
             stmt = stmt.where(Alert.kpi_name == kpi_name)
-        stmt = stmt.limit(limit)
+        if camera_id:
+            stmt = stmt.join(Job, Job.job_id == Alert.job_id).where(Job.camera_id == camera_id)  # type: ignore[arg-type]
+        stmt = stmt.order_by(Alert.created_at.desc()).limit(limit)  # type: ignore[union-attr]
         return [_alert_to_dict(a, session) for a in session.exec(stmt).all()]
 
 

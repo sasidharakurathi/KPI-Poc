@@ -162,7 +162,6 @@ class PipelineRunLog:
     timestamp_utc: str
     video_path: str
     total_pipeline_sec: float
-    compose_time_sec: float
     thread_workers: int
     system: SystemInfo
     models: list[ModelRunLog]   # one entry per .pt file

@@ -36,3 +36,8 @@ def get_registered_kpis() -> list["BaseKPI"]:
 
 def list_registered_names() -> list[str]:
     return list(_registry.keys())
+
+
+def get_registry() -> dict[str, Type["BaseKPI"]]:
+    """All registered KPI classes, keyed by name, regardless of enabled state."""
+    return dict(_registry)

@@ -1,35 +1,40 @@
 import logging
 import uuid
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from . import kpis as _kpis_pkg
+from . import db
 from .db import init_db, query_alerts, get_alert
 from .config import settings
 from .config_loader import (
     get_all as get_full_config,
-    get_camera,
-    get_camera_kpi_names,
-    get_cameras,
+    get_cameras as get_seed_cameras,
+    get_kpi_config,
+    get_kpi_param,
     get_kpi_registry,
     reload as reload_config,
     resolve_kpi_names,
+    update_kpi_config,
 )
 from .job_manager import job_manager
-from .kpis import get_registered_kpis, list_registered_names
+from .kpis import get_registered_kpis, get_registry, list_registered_names
 from .pipeline import run_pipeline
 from .schemas import (
+    CameraCreate,
     CameraInfo,
     CameraKPIDetail,
     CameraListItem,
     CameraListResponse,
+    CameraUpdate,
     JobStatus,
     JobStatusResponse,
     KPIInfo,
+    KPISettingsItem,
+    KPISettingsResponse,
     RegisteredKPIsResponse,
     UploadResponse,
 )
@@ -39,6 +44,7 @@ logging.basicConfig(level=logging.INFO)
 settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 settings.ALERTS_DIR.mkdir(parents=True, exist_ok=True)
 init_db()
+db.seed_cameras(get_seed_cameras())
 
 app = FastAPI(
     title="KPI Video Analytics",
@@ -104,14 +110,45 @@ async def hot_reload_config():
     return {"message": "config.json reloaded", "config": new_cfg}
 
 
+@app.get("/api/kpis/settings", response_model=KPISettingsResponse)
+async def list_kpi_settings():
+    """All registered KPIs (enabled or not) with their current global config."""
+    items = [
+        KPISettingsItem(
+            name=cls.name,
+            display_name=cls.display_name,
+            enabled=get_kpi_param(cls.__name__, "enabled", True),
+            config=get_kpi_config(cls.__name__),
+        )
+        for cls in get_registry().values()
+    ]
+    return KPISettingsResponse(count=len(items), kpis=items)
+
+
+@app.put("/api/kpis/{name}/config", response_model=KPISettingsItem)
+async def update_kpi_settings(name: str, updates: Annotated[dict[str, Any], Body()]):
+    """Merge partial field updates (including 'enabled') into a KPI's config block."""
+    cls = get_registry().get(name)
+    if not cls:
+        raise HTTPException(status_code=404, detail=f"KPI '{name}' not found.")
+    new_cfg = update_kpi_config(cls.__name__, updates)
+    return KPISettingsItem(
+        name=cls.name,
+        display_name=cls.display_name,
+        enabled=new_cfg.get("enabled", True),
+        config=new_cfg,
+    )
+
+
 @app.get("/api/alerts")
 async def get_alerts(
     job_id: Optional[str] = None,
     kpi_name: Optional[str] = None,
+    camera_id: Optional[str] = None,
     limit: int = 200,
 ):
     """Query saved detections. Each alert includes its saved clip frames."""
-    return query_alerts(job_id=job_id, kpi_name=kpi_name, limit=limit)
+    return query_alerts(job_id=job_id, kpi_name=kpi_name, camera_id=camera_id, limit=limit)
 
 
 @app.get("/api/alerts/{alert_id}")
@@ -153,53 +190,75 @@ async def get_alert_labeled_frame(alert_id: int):
 async def list_cameras():
     registry = get_kpi_registry()
     implemented_names = set(list_registered_names())
-    cameras = get_cameras()
 
-    items = []
-    for cam_id, cam in cameras.items():
-        kpi_ids = cam.get("kpi_ids", [])
-        impl_count = sum(
-            1 for kid in kpi_ids
-            if registry.get(str(kid)) in implemented_names
+    items = [
+        CameraListItem(
+            camera_id=cam.camera_id,
+            name=cam.name,
+            zone=cam.zone,
+            priority=cam.priority,
+            total_kpis=len(cam.kpi_ids),
+            implemented_kpis=sum(
+                1 for kid in cam.kpi_ids
+                if registry.get(str(kid)) in implemented_names
+            ),
         )
-        items.append(CameraListItem(
-            camera_id=cam_id,
-            name=cam["name"],
-            zone=cam.get("zone", ""),
-            priority=cam.get("priority", ""),
-            total_kpis=len(kpi_ids),
-            implemented_kpis=impl_count,
-        ))
-
+        for cam in db.list_cameras()
+    ]
     return CameraListResponse(count=len(items), cameras=items)
 
 
 @app.get("/api/cameras/{camera_id}", response_model=CameraInfo)
 async def get_camera_detail(camera_id: str):
-    cam = get_camera(camera_id)
+    cam = db.get_camera(camera_id)
     if not cam:
         raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
+    return _camera_to_info(cam)
 
+
+@app.post("/api/cameras", response_model=CameraInfo, status_code=201)
+async def create_camera(body: CameraCreate):
+    try:
+        cam = db.create_camera(
+            camera_id=body.camera_id, name=body.name,
+            zone=body.zone, priority=body.priority, kpi_ids=body.kpi_ids,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return _camera_to_info(cam)
+
+
+@app.put("/api/cameras/{camera_id}", response_model=CameraInfo)
+async def update_camera(camera_id: str, body: CameraUpdate):
+    cam = db.update_camera(
+        camera_id, name=body.name, zone=body.zone,
+        priority=body.priority, kpi_ids=body.kpi_ids,
+    )
+    if not cam:
+        raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
+    return _camera_to_info(cam)
+
+
+@app.delete("/api/cameras/{camera_id}", status_code=204)
+async def delete_camera(camera_id: str):
+    if not db.delete_camera(camera_id):
+        raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
+
+
+def _camera_to_info(cam: db.Camera) -> CameraInfo:
     registry = get_kpi_registry()
     implemented_names = set(list_registered_names())
-    kpi_ids = cam.get("kpi_ids", [])
-
     kpis_detail = [
         CameraKPIDetail(
             kpi_id=kid,
             kpi_label=_KPI_LABELS.get(kid, f"KPI {kid}"),
             implemented=registry.get(str(kid)) in implemented_names,
         )
-        for kid in kpi_ids
+        for kid in cam.kpi_ids
     ]
-
     return CameraInfo(
-        camera_id=camera_id,
-        name=cam["name"],
-        zone=cam.get("zone", ""),
-        priority=cam.get("priority", ""),
-        kpi_ids=kpi_ids,
-        kpis=kpis_detail,
+        camera_id=cam.camera_id, name=cam.name, zone=cam.zone,
+        priority=cam.priority, kpi_ids=cam.kpi_ids, kpis=kpis_detail,
     )
 
 
@@ -221,11 +280,11 @@ async def upload_video(
     kpi_names_to_run: Optional[list[str]] = None
 
     if camera_id:
-        cam = get_camera(camera_id)
+        cam = db.get_camera(camera_id)
         if not cam:
             raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
-        camera_name = cam["name"]
-        kpis_requested = resolve_kpi_names(cam.get("kpi_ids", []))
+        camera_name = cam.name
+        kpis_requested = resolve_kpi_names(cam.kpi_ids)
         kpi_names_to_run = kpis_requested
 
     implemented = set(list_registered_names())

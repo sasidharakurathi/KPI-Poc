@@ -110,7 +110,6 @@ def run_pipeline(
                 timestamp_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 video_path=video_path,
                 total_pipeline_sec=round(total_elapsed, 3),
-                compose_time_sec=0.0,
                 thread_workers=workers,
                 system=collect_system_info(device),
                 models=model_logs,

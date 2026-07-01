@@ -1,1 +1,1 @@
-from .detector import  SpeedTrackerKPI
+from .detector import SpeedTrackerKPI
