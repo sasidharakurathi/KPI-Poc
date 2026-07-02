@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
@@ -6,6 +7,7 @@ from typing import Optional
 from .job_manager import job_manager
 from .kpis import get_registered_kpis
 from .kpis.base import KPIResult
+from .kpis.shared_inference import SharedInference
 from .schemas import JobStatus
 from .config import settings
 from .kpi_logger import (
@@ -17,6 +19,20 @@ from .kpi_logger import (
 )
 
 logger = logging.getLogger(__name__)
+
+_executor: Optional[ThreadPoolExecutor] = None
+_executor_lock = threading.Lock()
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    global _executor
+    if _executor is None:
+        with _executor_lock:
+            if _executor is None:
+                _executor = ThreadPoolExecutor(
+                    max_workers=settings.MAX_WORKERS, thread_name_prefix="kpi-worker"
+                )
+    return _executor
 
 
 def _run_kpi(
@@ -73,27 +89,30 @@ def run_pipeline(
         kpi_results: dict[str, KPIResult] = {}
         kpi_timings: dict[str, float] = {}
         model_logs: list[ModelRunLog] = []
-        workers = min(len(kpis), settings.MAX_WORKERS)
         device = settings.DEVICE
 
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(_run_kpi, kpi, video_path, job_id, device): kpi.name
-                for kpi in kpis
-            }
-            for future in as_completed(futures):
-                kpi_name = futures[future]
-                try:
-                    name, result, elapsed, coll, exc = future.result()
-                    if coll:
-                        model_logs.extend(coll.to_model_logs())
-                    if exc:
-                        logger.error(f"[{kpi_name}] KPI failed — excluded from output")
-                    else:
-                        kpi_results[name] = result
-                        kpi_timings[name] = round(elapsed, 2)
-                except Exception as exc:
-                    logger.error(f"[{kpi_name}] unexpected executor error: {exc}", exc_info=True)
+        job_shared_cache = SharedInference()
+        for kpi in kpis:
+            kpi.shared_cache = job_shared_cache
+
+        executor = _get_executor()
+        futures = {
+            executor.submit(_run_kpi, kpi, video_path, job_id, device): kpi.name
+            for kpi in kpis
+        }
+        for future in as_completed(futures):
+            kpi_name = futures[future]
+            try:
+                name, result, elapsed, coll, exc = future.result()
+                if coll:
+                    model_logs.extend(coll.to_model_logs())
+                if exc:
+                    logger.error(f"[{kpi_name}] KPI failed — excluded from output")
+                else:
+                    kpi_results[name] = result
+                    kpi_timings[name] = round(elapsed, 2)
+            except Exception as exc:
+                logger.error(f"[{kpi_name}] unexpected executor error: {exc}", exc_info=True)
 
         if not kpi_results:
             raise RuntimeError("All KPIs failed — no results produced.")
@@ -110,7 +129,7 @@ def run_pipeline(
                 timestamp_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 video_path=video_path,
                 total_pipeline_sec=round(total_elapsed, 3),
-                thread_workers=workers,
+                thread_workers=settings.MAX_WORKERS,
                 system=collect_system_info(device),
                 models=model_logs,
                 notes=[

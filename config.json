@@ -547,7 +547,8 @@
         "aspect_ratio_min": 0.5,
         "aspect_ratio_max": 7.0,
         "min_plate_chars": 4,
-        "frame_skip": 2
+        "frame_skip": 2,
+        "infer_imgsz": 640
     },
     "FireSmokeKPI": {
         "enabled": true,
@@ -555,8 +556,12 @@
         "smoke_confidence": 0.28,
         "fire_confidence": 0.5,
         "alarm_frame_threshold": 15,
+        "fire_frame_threshold": 5,
         "alarm_hold_seconds": 3.0,
-        "frame_stride": 2
+        "frame_stride": 2,
+        "min_smoke_motion": 2.5,
+        "min_fire_motion": 2.5,
+        "infer_imgsz": 512
     },
     "MobileUsageKPI": {
         "enabled": true,
@@ -580,7 +585,10 @@
         "min_area_px": 400,
         "aspect_min": 0.2,
         "aspect_max": 5.0,
-        "wrist_threshold": 1.5
+        "wrist_threshold": 1.5,
+        "max_area_frac_of_person": 0.12,
+        "pose_imgsz": 512,
+        "phone_imgsz": 512
     },
     "PeopleCountKPI": {
         "enabled": true,
@@ -589,10 +597,12 @@
         "min_box_area": 800,
         "max_pillar_ratio": 4.0,
         "min_person_ratio": 0.6,
-        "frame_stride": 2
+        "frame_stride": 2,
+        "min_confirm_frames": 2,
+        "infer_imgsz": 640
     },
     "DensityOccupancyKPI": {
-        "enabled": true,
+        "enabled": false,
         "model_path": "app/models/density-occupancy.pt",
         "confidence": 0.35,
         "iou_threshold": 0.5,
@@ -615,10 +625,11 @@
         "max_counter_limit": 15,
         "upper_body_fraction": 0.6,
         "cigarette_imgsz": 320,
-        "frame_stride": 3
+        "frame_stride": 3,
+        "person_imgsz": 512
     },
     "FloatingKPI": {
-        "enabled": true,
+        "enabled": false,
         "model_path": "app/models/floating.pt",
         "pose_model_path": "app/models/yolo26s-pose.pt",
         "confidence": 0.3,
@@ -634,7 +645,8 @@
         "overlap_threshold": 0.3,
         "alarm_seconds": 2.0,
         "alert_hold_seconds": 4.0,
-        "frame_stride": 2
+        "frame_stride": 2,
+        "infer_imgsz": 512
     },
     "FallingPoseKPI": {
         "enabled": true,
@@ -648,16 +660,19 @@
         "gap_tol": 2,
         "horiz_angle_thr": 60.0,
         "horiz_aspect_thr": 1.1,
-        "floor_aspect_thr": 1.4
+        "floor_aspect_thr": 1.4,
+        "infer_imgsz": 640
     },
     "BoxCounterKPI": {
         "enabled": true,
         "model_path": "app/models/carton-box-detection.pt",
         "confidence": 0.75,
-        "frame_stride": 2
+        "frame_stride": 2,
+        "min_confirm_frames": 2,
+        "infer_imgsz": 640
     },
     "SpeedTrackerKPI": {
-        "enabled": true,
+        "enabled": false,
         "model_path": "app/models/vehicle-detection-speed.pt",
         "confidence": 0.5,
         "speed_limit_kmh": 25.0

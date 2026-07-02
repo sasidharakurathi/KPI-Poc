@@ -26,10 +26,13 @@ class PeopleCountKPI(BaseKPI):
         max_pillar_ratio = self._get("max_pillar_ratio", _DEFAULT_MAX_PILLAR_R)
         min_person_ratio = self._get("min_person_ratio", _DEFAULT_MIN_PERSON_R)
         frame_stride     = max(1, self._get("frame_stride", 2))
+        min_confirm_frames = max(1, self._get("min_confirm_frames", 2))
+        infer_imgsz      = self._get("infer_imgsz", 640)
 
         model = YOLO(model_path)
         cap   = cv2.VideoCapture(video_path)
 
+        track_seen: dict[int, int] = {}
         unique_ids: set[int] = set()
         alert_events = 0
         frame_idx    = 0
@@ -39,15 +42,13 @@ class PeopleCountKPI(BaseKPI):
             if not ret:
                 break
 
-            self._observe(frame, frame_idx, job_id)
-
             if frame_idx % frame_stride != 0:
                 frame_idx += 1
                 continue
 
             results = model.track(
                 frame, persist=True, tracker="bytetrack.yaml",
-                conf=conf, device=device, half=half, verbose=False,
+                conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False,
             )
             if not results:
                 frame_idx += 1
@@ -76,20 +77,18 @@ class PeopleCountKPI(BaseKPI):
                     continue
 
                 tid = track_ids[i]
-                if tid not in unique_ids:
-                    unique_ids.add(tid)
-                    alert_events += 1
-                    self._save_alert(
-                        "new_person_detected", job_id, frame_idx,
-                        confidence=round(confs[i], 3),
-                        extra={"track_id": int(tid)},
-                        boxes=[(x1, y1, x2, y2, f"ID {tid}", (0, 255, 0))],
-                    )
+                if tid in unique_ids:
+                    continue
+                track_seen[tid] = track_seen.get(tid, 0) + 1
+                if track_seen[tid] < min_confirm_frames:
+                    continue
+
+                unique_ids.add(tid)
+                alert_events += 1
 
             frame_idx += 1
 
         cap.release()
-        self._finalize()
 
         return KPIResult(self.name, self.display_name, {
             "alert_events":     alert_events,

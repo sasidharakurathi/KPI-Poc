@@ -50,6 +50,10 @@ def _associate_phone(phone_boxes, person_bbox, feat, cfg) -> tuple[bool, list]:
     aspect_min     = cfg["aspect_min"]
     aspect_max     = cfg["aspect_max"]
     wrist_thr      = cfg["wrist_threshold"]
+    max_area_frac  = cfg["max_area_frac_of_person"]
+
+    px1p, py1p, px2p, py2p = person_bbox
+    person_area = max(1, (px2p - px1p) * (py2p - py1p))
 
     matched = []
     for pb in phone_boxes:
@@ -62,7 +66,7 @@ def _associate_phone(phone_boxes, person_bbox, feat, cfg) -> tuple[bool, list]:
             continue
 
         # gate 2: size / aspect sanity
-        if area < min_area:
+        if area < min_area or area > max_area_frac * person_area:
             continue
         asp = pw / ph
         if not (aspect_min <= asp <= aspect_max):
@@ -114,6 +118,8 @@ class MobileUsageKPI(BaseKPI):
         kp_conf         = self._get("kp_conf",           0.30)
         person_conf     = self._get("confidence",        0.30)
         frame_stride    = max(1, self._get("frame_stride", 3))
+        pose_imgsz      = self._get("pose_imgsz",  640)
+        phone_imgsz     = self._get("phone_imgsz", 640)
         persist_frames  = self._get("persist_frames",  3)
         cooldown_secs   = self._get("cooldown_secs",   8.0)
         gap_tol         = self._get("gap_tol",         2)
@@ -133,10 +139,10 @@ class MobileUsageKPI(BaseKPI):
             "aspect_min":       self._get("aspect_min",       0.20),
             "aspect_max":       self._get("aspect_max",       5.0),
             "wrist_threshold":  self._get("wrist_threshold",  1.5),
+            "max_area_frac_of_person": self._get("max_area_frac_of_person", 0.12),
         }
 
         pose_model  = YOLO(pose_model_path)
-        phone_model = YOLO(phone_model_path)
         cig_model   = YOLO(cig_model_path) if smoking_override else None
 
         cap = cv2.VideoCapture(video_path)
@@ -165,7 +171,7 @@ class MobileUsageKPI(BaseKPI):
             # ── 1. Pose + person tracking ──────────────────────────────────────
             pose_res = pose_model.track(
                 frame, persist=True, tracker="bytetrack.yaml",
-                classes=[0], conf=person_conf,
+                classes=[0], conf=person_conf, imgsz=pose_imgsz,
                 device=device, half=half, verbose=False,
             )
             r = pose_res[0]
@@ -180,12 +186,19 @@ class MobileUsageKPI(BaseKPI):
             kps_conf    = r.keypoints.conf.cpu().numpy()   # (N, 17)
             total_tracks.update(track_ids)
 
-            # ── 2. Cigarette: collect upper-body crops (batched) ──────────────
+            feats: list[dict] = []
+            for tid, bbox, kp, kconf in zip(track_ids, boxes_xyxy, kps_xy, kps_conf):
+                if tid not in pf_map:
+                    pf_map[tid] = PoseFeatures()
+                feats.append(pf_map[tid].update(kp, kconf, tuple(map(int, bbox)), conf_thr=kp_conf))
+
+            # ── 2. Cigarette: collect upper-body + wrist-region crops (batched) ─
             crops: list[np.ndarray] = []
             crop_to_person: list[int] = []
 
-            for idx_p, (tid, bbox) in enumerate(zip(track_ids, boxes_xyxy)):
+            for idx_p, (tid, bbox, feat) in enumerate(zip(track_ids, boxes_xyxy, feats)):
                 x1, y1, x2, y2 = map(int, bbox)
+
                 roi_h = int((y2 - y1) * upper_body_frac)
                 cy1 = max(0, y1); cy2 = min(fh, y1 + roi_h)
                 cx1 = max(0, x1); cx2 = min(fw, x2)
@@ -193,6 +206,19 @@ class MobileUsageKPI(BaseKPI):
                 if crop.size > 0:
                     crops.append(crop)
                     crop_to_person.append(idx_p)
+
+                scale = feat.get("sh_width") or (x2 - x1) * 0.30
+                half_span = max(40, int(scale * 1.2))
+                for key, ok_key in (("lwr", "lwr_ok"), ("rwr", "rwr_ok")):
+                    if not feat.get(ok_key):
+                        continue
+                    wx, wy = feat[key]
+                    wcx1 = max(0, int(wx - half_span)); wcy1 = max(0, int(wy - half_span))
+                    wcx2 = min(fw, int(wx + half_span)); wcy2 = min(fh, int(wy + half_span))
+                    wcrop = frame[wcy1:wcy2, wcx1:wcx2]
+                    if wcrop.size > 0:
+                        crops.append(wcrop)
+                        crop_to_person.append(idx_p)
 
             smoking_persons: set[int] = set()
             if smoking_override and cig_model and crops:
@@ -204,16 +230,17 @@ class MobileUsageKPI(BaseKPI):
                     if len(cr.boxes) > 0:
                         smoking_persons.add(crop_to_person[j])
 
-            # ── 3. Phone detection on full frame ───────────────────────────────
-            phone_res = phone_model.predict(
-                frame, conf=phone_conf,
-                device=device, half=half, verbose=False,
+            # ── 3. Phone detection on full frame
+            raw_boxes = self.shared_cache.predict_boxes(
+                phone_model_path, frame_idx, frame, phone_imgsz, device, half
             )
             phone_boxes_raw = []
-            for pr in phone_res:
-                for box in pr.boxes:
-                    if int(box.cls[0]) == 0:
-                        phone_boxes_raw.append(list(map(int, box.xyxy[0])))
+            phone_conf_by_box: dict[tuple, float] = {}
+            for x1, y1, x2, y2, cls_id, conf in raw_boxes:
+                if cls_id == 67 and conf >= phone_conf:   # yolo26m.pt (COCO): 67 = cell phone
+                    b = [int(x1), int(y1), int(x2), int(y2)]
+                    phone_boxes_raw.append(b)
+                    phone_conf_by_box[tuple(b)] = conf
 
             # ── 4. Per-person decision ─────────────────────────────────────────
             smoking_boxes_xyxy = set()
@@ -227,17 +254,12 @@ class MobileUsageKPI(BaseKPI):
                 if not any(_iou_frac(tuple(map(int, sb)), pb) > 0.5 for sb in smoking_boxes_xyxy)
             ]
 
-            for idx_p, (tid, bbox, kp, kconf) in enumerate(
-                zip(track_ids, boxes_xyxy, kps_xy, kps_conf)
+            for idx_p, (tid, bbox, feat) in enumerate(
+                zip(track_ids, boxes_xyxy, feats)
             ):
-                if tid not in pf_map:
-                    pf_map[tid] = PoseFeatures()
-
-                feat = pf_map[tid].update(kp, kconf, tuple(map(int, bbox)), conf_thr=kp_conf)
-
                 if idx_p in smoking_persons:
                     feat["suppress_mobile"] = True
-                    bus.reset(tid)
+                    bus.submit(tid, False, frame_idx)
                     continue
 
                 # associate phone to this person
@@ -258,8 +280,13 @@ class MobileUsageKPI(BaseKPI):
                     boxes_for_label = [(x1, y1, x2, y2, f"ID {tid} MOBILE", (220, 130, 0))]
                     for mp in matched_phones:
                         boxes_for_label.append((*mp, "phone", (0, 200, 255)))
+                    best_conf = max(
+                        (phone_conf_by_box.get(tuple(mp), phone_conf) for mp in matched_phones),
+                        default=phone_conf,
+                    )
                     self._save_alert(
                         "phone_usage_confirmed", job_id, frame_idx,
+                        confidence=round(best_conf, 3),
                         extra={"track_id": int(tid)},
                         boxes=boxes_for_label,
                     )
@@ -272,6 +299,7 @@ class MobileUsageKPI(BaseKPI):
         return KPIResult(self.name, self.display_name, {
             "alert_events":        alert_events,
             "total_persons_tracked": len(total_tracks),
+            "alarm_triggered":     alert_events > 0,
             "total_frames":        frame_idx,
             "device":              device,
         })

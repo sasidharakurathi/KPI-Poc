@@ -46,12 +46,14 @@ class AnprLprKPI(BaseKPI):
         aspect_max  = self._get("aspect_ratio_max",  7.0)
         min_chars   = self._get("min_plate_chars",   4)
         frame_skip  = max(1, self._get("frame_skip", 2))
+        infer_imgsz = self._get("infer_imgsz",       640)
 
         model  = YOLO(model_path)
         reader = _get_reader(gpu)
         cap    = cv2.VideoCapture(video_path)
 
         plate_cache: dict[int, str] = {}
+        seen_plates: set[str]       = set()
         alert_events = 0
         frame_idx    = 0
 
@@ -68,7 +70,7 @@ class AnprLprKPI(BaseKPI):
 
             results = model.track(
                 frame, persist=True, tracker="bytetrack.yaml",
-                conf=conf, device=device, half=half, verbose=False,
+                conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False,
             )
             if not results or results[0].boxes is None:
                 frame_idx += 1
@@ -96,6 +98,9 @@ class AnprLprKPI(BaseKPI):
                     continue
 
                 plate_cache[tid] = plate_text
+                if plate_text in seen_plates:
+                    continue
+                seen_plates.add(plate_text)
                 alert_events += 1
                 self._save_alert(
                     "license_plate_detected", job_id, frame_idx,
@@ -110,8 +115,9 @@ class AnprLprKPI(BaseKPI):
         self._finalize()
 
         return KPIResult(self.name, self.display_name, {
-            "alert_events":  alert_events,
-            "unique_plates": len(plate_cache),
-            "plates_seen":   list(plate_cache.values()),
-            "total_frames":  frame_idx,
+            "alert_events":    alert_events,
+            "unique_plates":   len(seen_plates),
+            "plates_seen":     sorted(seen_plates),
+            "alarm_triggered": alert_events > 0,
+            "total_frames":    frame_idx,
         })

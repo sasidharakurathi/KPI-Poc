@@ -36,9 +36,9 @@ class SmokingKPI(BaseKPI):
         max_limit         = self._get("max_counter_limit",   15)
         upper_frac        = self._get("upper_body_fraction", 0.60)
         cig_imgsz         = self._get("cigarette_imgsz",     320)
+        person_imgsz      = self._get("person_imgsz",        640)
         frame_stride      = max(1, self._get("frame_stride", 3))
 
-        person_model = YOLO(person_model_path)
         cig_model    = YOLO(cig_model_path)
         tracker      = sv.ByteTrack()
 
@@ -63,14 +63,23 @@ class SmokingKPI(BaseKPI):
                 frame_idx += 1
                 continue
 
-            # ── Stage 1: detect + track persons ───────────────────────────────
-            det_res = person_model.predict(
-                frame, conf=person_conf, classes=[0],
-                device=device, half=half, verbose=False,
+            # ── Stage 1: detect + track persons
+            raw_boxes = self.shared_cache.predict_boxes(
+                person_model_path, frame_idx, frame, person_imgsz, device, half
             )
-            sv_dets = sv.Detections.from_ultralytics(det_res[0])
-            if len(sv_dets) > 0:
+            person_rows = [
+                (x1, y1, x2, y2, conf) for x1, y1, x2, y2, cls_id, conf in raw_boxes
+                if cls_id == 0 and conf >= person_conf
+            ]
+            if person_rows:
+                sv_dets = sv.Detections(
+                    xyxy=np.array([r[:4] for r in person_rows], dtype=np.float32),
+                    confidence=np.array([r[4] for r in person_rows], dtype=np.float32),
+                    class_id=np.zeros(len(person_rows), dtype=int),
+                )
                 sv_dets = tracker.update_with_detections(sv_dets)
+            else:
+                sv_dets = sv.Detections.empty()
 
             if len(sv_dets) == 0 or sv_dets.tracker_id is None:
                 frame_idx += 1
@@ -92,7 +101,8 @@ class SmokingKPI(BaseKPI):
                     crop_to_idx.append(pidx)
 
             # ── One batched GPU call ───────────────────────────────────────────
-            cig_hit: dict[int, bool] = {}
+            cig_hit:  dict[int, bool]  = {}
+            cig_conf_val: dict[int, float] = {}
             if crops:
                 cig_res = cig_model(
                     crops, conf=cig_conf, imgsz=cig_imgsz,
@@ -101,6 +111,8 @@ class SmokingKPI(BaseKPI):
                 for j, cr in enumerate(cig_res):
                     pidx = crop_to_idx[j]
                     cig_hit[pidx] = len(cr.boxes) > 0
+                    if len(cr.boxes) > 0:
+                        cig_conf_val[pidx] = float(cr.boxes.conf.max())
 
             # ── Update counters & fire alerts ──────────────────────────────────
             for pidx, (tid, bbox) in enumerate(persons):
@@ -119,6 +131,7 @@ class SmokingKPI(BaseKPI):
                     x1, y1, x2, y2 = map(int, bbox)
                     self._save_alert(
                         "smoking_alarm", job_id, frame_idx,
+                        confidence=round(cig_conf_val.get(pidx, cig_conf), 3),
                         extra={"tracker_id": tid, "counter": track_history[tid]},
                         boxes=[(x1, y1, x2, y2, f"#{tid} SMOKING", (0, 255, 255))],
                     )
@@ -131,6 +144,7 @@ class SmokingKPI(BaseKPI):
         return KPIResult(self.name, self.display_name, {
             "alert_events":        alert_events,
             "unique_smokers_found": len(alarmed_ids),
+            "alarm_triggered":     alert_events > 0,
             "total_frames":        frame_idx,
             "device":              device,
         })

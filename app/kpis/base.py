@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 
 from .. import db
+from .shared_inference import SharedInference
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,7 @@ class BaseKPI(ABC):
         self._buf: deque  = deque(maxlen=self._before + 1)
         self._pending: list[_PendingWindow] = []
         self._job_id: str = ""
+        self.shared_cache = SharedInference()
 
     def _get(self, key: str, default: Any = None) -> Any:
         return self._cfg.get(key, default)

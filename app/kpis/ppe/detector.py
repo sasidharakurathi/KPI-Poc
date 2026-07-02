@@ -6,7 +6,7 @@ from ultralytics import YOLO
 
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
-from ..pose_utils import _DEFAULT_POSE_MODEL_PATH, load_pose_model, run_pose, human_keypoints_in_box
+from ..pose_utils import _DEFAULT_POSE_MODEL_PATH, load_pose_model, run_pose, human_confirmed_in_box
 from ...config import settings
 
 PERSON_CLS = "person"
@@ -58,6 +58,7 @@ class PPEKPI(BaseKPI):
         alarm_secs      = self._get("alarm_seconds",      2.0)
         alert_hold_secs = self._get("alert_hold_seconds", 4.0)
         frame_stride    = max(1, self._get("frame_stride", 2))
+        infer_imgsz     = self._get("infer_imgsz",         640)
 
         model      = YOLO(model_path)
         pose_model = load_pose_model(pose_model_path)
@@ -85,7 +86,7 @@ class PPEKPI(BaseKPI):
                 frame_idx += 1
                 continue
 
-            results = model.predict(frame, conf=conf, device=device, half=half, verbose=False)
+            results = model.predict(frame, conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False)
             r = results[0]
             sv_dets = sv.Detections.from_ultralytics(r)
             names   = r.names
@@ -107,11 +108,11 @@ class PPEKPI(BaseKPI):
 
             valid_xyxy, valid_conf, valid_cls = [], [], []
             if len(persons_sv) > 0:
-                pose_results = run_pose(pose_model, frame)
+                pose_results = run_pose(pose_model, frame, imgsz=infer_imgsz)
                 for i in range(len(persons_sv)):
                     pbox = _box_xyxy(persons_sv.xyxy[i])
                     pconf = float(persons_sv.confidence[i]) if persons_sv.confidence is not None else conf
-                    if human_keypoints_in_box(pose_results, int(pbox[0]), int(pbox[1]), int(pbox[2]), int(pbox[3])):
+                    if human_confirmed_in_box(pose_results, int(pbox[0]), int(pbox[1]), int(pbox[2]), int(pbox[3])):
                         valid_xyxy.append(persons_sv.xyxy[i])
                         valid_conf.append(pconf)
                         valid_cls.append(person_cls_id)
@@ -140,13 +141,18 @@ class PPEKPI(BaseKPI):
                 elif status == "NO VEST":   no_vest    += 1
                 else:                       no_ppe     += 1
 
-                if tracker_id is not None and status != "COMPLIANT":
-                    track_noncompliant[tracker_id] += 1
+                if tracker_id is not None:
+                    if status != "COMPLIANT":
+                        track_noncompliant[tracker_id] += 1
+                    else:
+                        track_noncompliant[tracker_id] = max(0, track_noncompliant[tracker_id] - 1)
+
                     if track_noncompliant[tracker_id] >= alarm_frames and tracker_id not in alarmed_ids:
                         alarmed_ids.add(tracker_id)
                         alert_events += 1
                         self._save_alert(
                             "ppe_non_compliance", job_id, frame_idx,
+                            confidence=round(pconf, 3),
                             extra={"tracker_id": tracker_id, "status": status},
                             boxes=[(x1, y1, x2, y2, f"#{tracker_id} {status}", color)],
                         )

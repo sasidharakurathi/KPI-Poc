@@ -64,6 +64,7 @@ class FallingPoseKPI(BaseKPI):
         horiz_angle_thr    = self._get("horiz_angle_thr",         60.0)
         horiz_aspect_thr   = self._get("horiz_aspect_thr",        1.1)
         floor_aspect_thr   = self._get("floor_aspect_thr",        1.4)
+        infer_imgsz        = self._get("infer_imgsz",             640)
 
         pose_model = YOLO(pose_model_path)
         cap = cv2.VideoCapture(video_path)
@@ -88,7 +89,7 @@ class FallingPoseKPI(BaseKPI):
 
             pose_res = pose_model.track(
                 frame, persist=True, tracker="bytetrack.yaml",
-                classes=[0], conf=person_conf,
+                classes=[0], conf=person_conf, imgsz=infer_imgsz,
                 device=device, half=half, verbose=False,
             )
             r = pose_res[0]
@@ -105,7 +106,7 @@ class FallingPoseKPI(BaseKPI):
             for tid, bbox, kp, kconf in zip(track_ids, boxes_xyxy, kps_xy, kps_conf):
                 # full-body gate
                 if require_full_body and not _full_body_visible(kconf, kp_conf):
-                    bus.reset(tid)
+                    bus.submit(tid, False, frame_idx)
                     continue
 
                 if tid not in pf_map:
@@ -131,7 +132,8 @@ class FallingPoseKPI(BaseKPI):
         self._finalize()
 
         return KPIResult(self.name, self.display_name, {
-            "alert_events": alert_events,
-            "total_frames": frame_idx,
-            "device":       device,
+            "alert_events":    alert_events,
+            "alarm_triggered": alert_events > 0,
+            "total_frames":    frame_idx,
+            "device":          device,
         })
