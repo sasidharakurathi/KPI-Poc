@@ -88,7 +88,6 @@ def notify_alert(
         f"KPI: {display_name}\n"
         f"Alert type: {alert_type}\n"
         f"Camera: {camera_name or 'N/A'}\n"
-        f"Confidence: {confidence:.0%}\n"
         f"Job ID: {job_id}\n"
         f"Alert ID: {alert_id}\n"
     )
@@ -96,7 +95,6 @@ def notify_alert(
         f"<h3>{display_name} alert</h3>"
         f"<p><b>Alert type:</b> {alert_type}<br>"
         f"<b>Camera:</b> {camera_name or 'N/A'}<br>"
-        f"<b>Confidence:</b> {confidence:.0%}<br>"
         f"<b>Job ID:</b> {job_id}<br>"
         f"<b>Alert ID:</b> {alert_id}</p>"
     )
