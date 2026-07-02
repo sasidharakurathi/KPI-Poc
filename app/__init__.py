@@ -1,14 +1,6 @@
 import logging
 import os
 
-# Silence ultralytics' own logger (e.g. the "'half' is deprecated..." warning
-# fired on every single predict()/track() call across all 8 KPIs — floods
-# the systemd journal without indicating an actual problem). Real errors
-# still surface via exceptions, not this logger.
-#
-# ultralytics installs its own handler + INFO level the first time the
-# package is imported, which would clobber a level set beforehand — so
-# import it here first, then override.
 import ultralytics  # noqa: F401
 logging.getLogger("ultralytics").setLevel(logging.ERROR)
 
