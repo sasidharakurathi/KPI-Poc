@@ -1,5 +1,7 @@
 import logging
+import re
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -7,7 +9,7 @@ from fastapi import BackgroundTasks, Body, FastAPI, File, Form, HTTPException, U
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from . import db
+from . import db, notifications
 from .db import init_db, query_alerts, get_alert
 from .config import settings
 from .config_loader import (
@@ -20,6 +22,7 @@ from .config_loader import (
     resolve_kpi_names,
     update_kpi_config,
 )
+from .email_crypto import EmailCryptoNotConfigured, encrypt_secret
 from .job_manager import job_manager
 from .kpis import get_registered_kpis, get_registry, list_registered_names
 from .pipeline import run_pipeline
@@ -30,12 +33,17 @@ from .schemas import (
     CameraListItem,
     CameraListResponse,
     CameraUpdate,
+    EmailLogsResponse,
+    EmailSettingsResponse,
+    EmailSettingsUpdate,
     JobStatus,
     JobStatusResponse,
     KPIInfo,
     KPISettingsItem,
     KPISettingsResponse,
     RegisteredKPIsResponse,
+    TimezoneSettingsResponse,
+    TimezoneSettingsUpdate,
     UploadResponse,
 )
 
@@ -45,6 +53,8 @@ settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 settings.ALERTS_DIR.mkdir(parents=True, exist_ok=True)
 init_db()
 db.seed_cameras(get_seed_cameras())
+if db.get_config("timezone") is None:
+    db.set_config("timezone", {"default": "Asia/Riyadh"})
 
 app = FastAPI(
     title="KPI Video Analytics",
@@ -140,15 +150,142 @@ async def update_kpi_settings(name: str, updates: Annotated[dict[str, Any], Body
     )
 
 
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_ALLOWED_TIMEZONES = {"Asia/Riyadh", "Asia/Kolkata"}
+
+
+def _email_config_to_response() -> EmailSettingsResponse:
+    cfg = notifications.get_email_config()
+    return EmailSettingsResponse(
+        enabled=cfg["enabled"],
+        smtp_host=cfg["smtp_host"],
+        smtp_port=cfg["smtp_port"],
+        smtp_username=cfg["smtp_username"],
+        use_tls=cfg["use_tls"],
+        from_address=cfg["from_address"],
+        from_name=cfg["from_name"],
+        recipients=cfg["recipients"],
+        password_set=bool(cfg["smtp_password_encrypted"]),
+        updated_at=db.get_config_updated_at("email"),
+    )
+
+
+@app.get("/api/settings/email", response_model=EmailSettingsResponse)
+async def get_email_settings():
+    return _email_config_to_response()
+
+
+@app.put("/api/settings/email", response_model=EmailSettingsResponse)
+async def update_email_settings(body: EmailSettingsUpdate):
+    if body.recipients is not None:
+        bad = [r for r in body.recipients if not _EMAIL_RE.match(r)]
+        if bad:
+            raise HTTPException(status_code=422, detail=f"Invalid recipient address(es): {bad}")
+    if body.from_address is not None and body.from_address and not _EMAIL_RE.match(body.from_address):
+        raise HTTPException(status_code=422, detail="Invalid from_address.")
+    if body.smtp_port is not None and not (1 <= body.smtp_port <= 65535):
+        raise HTTPException(status_code=422, detail="smtp_port must be between 1 and 65535.")
+
+    updates = body.model_dump(exclude_unset=True, exclude={"smtp_password"})
+    if body.smtp_password:   # blank/omitted = keep the existing stored password
+        try:
+            updates["smtp_password_encrypted"] = encrypt_secret(body.smtp_password)
+        except EmailCryptoNotConfigured as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    merged = {**notifications.get_email_config(), **updates}
+    db.set_config("email", merged)
+    return _email_config_to_response()
+
+
+@app.post("/api/settings/email/test")
+async def test_email_settings():
+    cfg = notifications.get_email_config()
+    if not cfg["smtp_host"] or not cfg["recipients"]:
+        raise HTTPException(status_code=400, detail="Email settings are incomplete — set SMTP host and at least one recipient first.")
+    try:
+        notifications.send_test_email(cfg)
+    except EmailCryptoNotConfigured as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Test email failed: {e}")
+    return {"message": f"Test email sent to {', '.join(cfg['recipients'])}."}
+
+
+@app.get("/api/settings/timezone", response_model=TimezoneSettingsResponse)
+async def get_timezone_settings():
+    cfg = db.get_config("timezone") or {}
+    return TimezoneSettingsResponse(
+        default=cfg.get("default", "Asia/Riyadh"),
+        updated_at=db.get_config_updated_at("timezone"),
+    )
+
+
+@app.put("/api/settings/timezone", response_model=TimezoneSettingsResponse)
+async def update_timezone_settings(body: TimezoneSettingsUpdate):
+    if body.default not in _ALLOWED_TIMEZONES:
+        raise HTTPException(status_code=422, detail=f"default must be one of {sorted(_ALLOWED_TIMEZONES)}.")
+    db.set_config("timezone", {"default": body.default})
+    return TimezoneSettingsResponse(default=body.default, updated_at=db.get_config_updated_at("timezone"))
+
+
+@app.get("/api/email-logs", response_model=EmailLogsResponse)
+async def get_email_logs(
+    status: Optional[str] = None,
+    kpi_name: Optional[str] = None,
+    camera_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sort_by: str = "created_at",
+    sort_dir: str = "desc",
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Paginated, filterable, sortable log of every alert-notification email attempt."""
+    def _parse(d: Optional[str]) -> Optional[datetime]:
+        if not d:
+            return None
+        try:
+            return datetime.fromisoformat(d)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid date '{d}' — expected ISO 8601.")
+
+    rows, total = db.query_email_logs(
+        status=status, kpi_name=kpi_name, camera_id=camera_id,
+        date_from=_parse(date_from), date_to=_parse(date_to),
+        sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=offset,
+    )
+    return EmailLogsResponse(count=len(rows), total=total, logs=rows)
+
+
 @app.get("/api/alerts")
 async def get_alerts(
     job_id: Optional[str] = None,
     kpi_name: Optional[str] = None,
     camera_id: Optional[str] = None,
-    limit: int = 200,
+    alert_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sort_by: str = "created_at",
+    sort_dir: str = "desc",
+    limit: int = 100,
+    offset: int = 0,
 ):
     """Query saved detections. Each alert includes its saved clip frames."""
-    return query_alerts(job_id=job_id, kpi_name=kpi_name, camera_id=camera_id, limit=limit)
+    def _parse(d: Optional[str]) -> Optional[datetime]:
+        if not d:
+            return None
+        try:
+            return datetime.fromisoformat(d)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid date '{d}' — expected ISO 8601.")
+
+    rows, total = query_alerts(
+        job_id=job_id, kpi_name=kpi_name, camera_id=camera_id, alert_type=alert_type,
+        date_from=_parse(date_from), date_to=_parse(date_to),
+        sort_by=sort_by, sort_dir=sort_dir, limit=limit, offset=offset,
+    )
+    return {"count": len(rows), "total": total, "alerts": rows}
 
 
 @app.get("/api/alerts/{alert_id}")
@@ -350,4 +487,5 @@ async def get_job_alerts(job_id: str, kpi_name: Optional[str] = None, limit: int
     job = job_manager.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
-    return query_alerts(job_id=job_id, kpi_name=kpi_name, limit=limit)
+    rows, _total = query_alerts(job_id=job_id, kpi_name=kpi_name, limit=limit)
+    return rows

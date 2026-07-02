@@ -162,6 +162,19 @@ class BaseKPI(ABC):
             logger.exception("[%s] failed to persist alert", self.name)
             return
 
+        try:
+            from ..notifications import notify_alert
+            notify_alert(
+                kpi_name=self.name,
+                display_name=getattr(self, "display_name", self.name),
+                alert_type=p.alert_type,
+                job_id=self._job_id,
+                alert_id=alert_id,
+                confidence=float(p.confidence),
+            )
+        except Exception:
+            logger.exception("[%s] failed to dispatch email notification", self.name)
+
         out_dir = settings.ALERTS_DIR / self._job_id / self.name / f"{alert_id:06d}"
         out_dir.mkdir(parents=True, exist_ok=True)
 

@@ -18,3 +18,4 @@ shapely
 easyocr
 sqlmodel
 psycopg[binary]
+cryptography

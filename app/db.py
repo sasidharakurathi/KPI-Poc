@@ -1,18 +1,10 @@
-"""
-SQLModel-based persistence layer.
-
-Tables:
-  jobs         — one row per uploaded video job
-  alerts       — one detection event per row
-  alert_frames — the 8 (before+anchor+after) raw frame paths per alert,
-                 plus optional labeled_path for the anchor frame (dev mode)
-"""
+import json
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlmodel import Column, Field, Relationship, Session, SQLModel, create_engine, select
-from sqlalchemy import JSON as _JSON
+from sqlalchemy import JSON as _JSON, func as _func
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +70,35 @@ class Camera(SQLModel, table=True):
     kpi_ids: list = Field(default_factory=list, sa_column=Column(_JSON))
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Configuration(SQLModel, table=True):
+    """Generic (name, value) settings store. `value` is a JSON-encoded string —
+    see get_config()/set_config(). One row per named config group, e.g.
+    name="email" holds the whole SMTP config object, name="timezone" holds
+    the default display timezone."""
+    __tablename__ = "configurations"  # type: ignore[assignment]
+
+    name: str = Field(primary_key=True)
+    value: str = ""
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class EmailLog(SQLModel, table=True):
+    """One row per attempted alert-notification email (sent or failed)."""
+    __tablename__ = "email_logs"  # type: ignore[assignment]
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    alert_id: Optional[int] = Field(default=None, index=True)
+    kpi_name: Optional[str] = Field(default=None, index=True)
+    alert_type: Optional[str] = None
+    camera_id: Optional[str] = Field(default=None, index=True)
+    camera_name: Optional[str] = None
+    subject: str = ""
+    recipients: list = Field(default_factory=list, sa_column=Column(_JSON))
+    status: str = Field(default="sent", index=True)   # "sent" | "failed"
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
 # ── Engine ────────────────────────────────────────────────────────────────────
@@ -277,6 +298,119 @@ def delete_camera(camera_id: str) -> bool:
         return True
 
 
+# ── Generic configuration store ──────────────────────────────────────────────
+
+def get_config(name: str) -> Optional[dict]:
+    """Returns the decoded JSON value for a config group, or None if unset/invalid."""
+    with get_session() as session:
+        row = session.get(Configuration, name)
+        if not row or not row.value:
+            return None
+        try:
+            return json.loads(row.value)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("[config] '%s' has invalid JSON — ignoring", name)
+            return None
+
+
+def get_config_updated_at(name: str) -> Optional[datetime]:
+    with get_session() as session:
+        row = session.get(Configuration, name)
+        return row.updated_at if row else None
+
+
+def set_config(name: str, value: dict) -> dict:
+    """Replaces (or creates) a config group's stored value wholesale."""
+    with get_session() as session:
+        row = session.get(Configuration, name)
+        if not row:
+            row = Configuration(name=name)
+        row.value = json.dumps(value)
+        row.updated_at = datetime.utcnow()
+        session.add(row)
+        session.commit()
+        return value
+
+
+def list_configs() -> list[Configuration]:
+    with get_session() as session:
+        return list(session.exec(select(Configuration).order_by(Configuration.name)).all())  # type: ignore[arg-type]
+
+
+# ── Email log helpers ─────────────────────────────────────────────────────────
+
+def create_email_log(
+    status: str,
+    subject: str = "",
+    recipients: Optional[list[str]] = None,
+    alert_id: Optional[int] = None,
+    kpi_name: Optional[str] = None,
+    alert_type: Optional[str] = None,
+    camera_id: Optional[str] = None,
+    camera_name: Optional[str] = None,
+    error: Optional[str] = None,
+) -> int:
+    with get_session() as session:
+        log = EmailLog(
+            status=status, subject=subject, recipients=recipients or [],
+            alert_id=alert_id, kpi_name=kpi_name, alert_type=alert_type,
+            camera_id=camera_id, camera_name=camera_name, error=error,
+        )
+        session.add(log)
+        session.commit()
+        session.refresh(log)
+        return log.id  # type: ignore[return-value]
+
+
+_EMAIL_LOG_SORT_COLUMNS: dict[str, Any] = {
+    "created_at": EmailLog.created_at,
+    "kpi_name":   EmailLog.kpi_name,
+    "status":     EmailLog.status,
+    "camera_id":  EmailLog.camera_id,
+}
+
+
+def query_email_logs(
+    status: Optional[str] = None,
+    kpi_name: Optional[str] = None,
+    camera_id: Optional[str] = None,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    sort_by: str = "created_at",
+    sort_dir: str = "desc",
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[EmailLog], int]:
+    """Returns (page of logs, total matching count)."""
+    with get_session() as session:
+        stmt = select(EmailLog)
+        count_stmt = select(_func.count()).select_from(EmailLog)
+
+        if status:
+            stmt = stmt.where(EmailLog.status == status)
+            count_stmt = count_stmt.where(EmailLog.status == status)
+        if kpi_name:
+            stmt = stmt.where(EmailLog.kpi_name == kpi_name)
+            count_stmt = count_stmt.where(EmailLog.kpi_name == kpi_name)
+        if camera_id:
+            stmt = stmt.where(EmailLog.camera_id.ilike(f"%{camera_id}%"))
+            count_stmt = count_stmt.where(EmailLog.camera_id.ilike(f"%{camera_id}%"))
+        if date_from:
+            stmt = stmt.where(EmailLog.created_at >= date_from)
+            count_stmt = count_stmt.where(EmailLog.created_at >= date_from)
+        if date_to:
+            stmt = stmt.where(EmailLog.created_at <= date_to)
+            count_stmt = count_stmt.where(EmailLog.created_at <= date_to)
+
+        col = _EMAIL_LOG_SORT_COLUMNS.get(sort_by, EmailLog.created_at)
+        stmt = stmt.order_by(col.desc() if sort_dir == "desc" else col.asc())
+        stmt = stmt.offset(offset).limit(limit)
+
+        total = session.exec(count_stmt).one()
+        rows = list(session.exec(stmt).all())
+        return rows, total
+
+
 # ── Read helpers ──────────────────────────────────────────────────────────────
 
 def _alert_to_dict(alert: Alert, session: Session) -> dict:
@@ -310,22 +444,59 @@ def _alert_to_dict(alert: Alert, session: Session) -> dict:
     }
 
 
+_ALERT_SORT_COLUMNS: dict[str, Any] = {
+    "created_at": Alert.created_at,
+    "kpi_name":   Alert.kpi_name,
+    "alert_type": Alert.alert_type,
+    "confidence": Alert.confidence,
+}
+
+
 def query_alerts(
     job_id: Optional[str] = None,
     kpi_name: Optional[str] = None,
     camera_id: Optional[str] = None,
+    alert_type: Optional[str] = None,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    sort_by: str = "created_at",
+    sort_dir: str = "desc",
     limit: int = 200,
-) -> list[dict]:
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Returns (page of alerts as dicts, total matching count)."""
     with get_session() as session:
         stmt = select(Alert)
+        count_stmt = select(_func.count()).select_from(Alert)
+
+        if camera_id:
+            stmt = stmt.join(Job, Job.job_id == Alert.job_id)  # type: ignore[arg-type]
+            count_stmt = count_stmt.join(Job, Job.job_id == Alert.job_id)  # type: ignore[arg-type]
+            stmt = stmt.where(Job.camera_id == camera_id)
+            count_stmt = count_stmt.where(Job.camera_id == camera_id)
         if job_id:
             stmt = stmt.where(Alert.job_id == job_id)
+            count_stmt = count_stmt.where(Alert.job_id == job_id)
         if kpi_name:
             stmt = stmt.where(Alert.kpi_name == kpi_name)
-        if camera_id:
-            stmt = stmt.join(Job, Job.job_id == Alert.job_id).where(Job.camera_id == camera_id)  # type: ignore[arg-type]
-        stmt = stmt.order_by(Alert.created_at.desc()).limit(limit)  # type: ignore[union-attr]
-        return [_alert_to_dict(a, session) for a in session.exec(stmt).all()]
+            count_stmt = count_stmt.where(Alert.kpi_name == kpi_name)
+        if alert_type:
+            stmt = stmt.where(Alert.alert_type.ilike(f"%{alert_type}%"))
+            count_stmt = count_stmt.where(Alert.alert_type.ilike(f"%{alert_type}%"))
+        if date_from:
+            stmt = stmt.where(Alert.created_at >= date_from)
+            count_stmt = count_stmt.where(Alert.created_at >= date_from)
+        if date_to:
+            stmt = stmt.where(Alert.created_at <= date_to)
+            count_stmt = count_stmt.where(Alert.created_at <= date_to)
+
+        col = _ALERT_SORT_COLUMNS.get(sort_by, Alert.created_at)
+        stmt = stmt.order_by(col.desc() if sort_dir == "desc" else col.asc())
+        stmt = stmt.offset(offset).limit(limit)
+
+        total = session.exec(count_stmt).one()
+        rows = [_alert_to_dict(a, session) for a in session.exec(stmt).all()]
+        return rows, total
 
 
 def get_alert(alert_id: int) -> Optional[dict]:

@@ -101,3 +101,59 @@ class KPISettingsItem(BaseModel):
 class KPISettingsResponse(BaseModel):
     count: int
     kpis: list[KPISettingsItem]
+
+
+class EmailSettingsResponse(BaseModel):
+    enabled: bool
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    use_tls: bool
+    from_address: str
+    from_name: str
+    recipients: list[str]
+    password_set: bool          # never expose the password/ciphertext itself
+    updated_at: Optional[datetime] = None
+
+
+class EmailSettingsUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None   # plaintext in transit; encrypted before storage, never echoed back
+    use_tls: Optional[bool] = None
+    from_address: Optional[str] = None
+    from_name: Optional[str] = None
+    recipients: Optional[list[str]] = None
+
+
+class TimezoneSettingsResponse(BaseModel):
+    default: str
+    updated_at: Optional[datetime] = None
+
+
+class TimezoneSettingsUpdate(BaseModel):
+    default: str
+
+
+class EmailLogItem(BaseModel):
+    model_config = {"from_attributes": True}   # allows building directly from db.EmailLog ORM rows
+
+    id: int
+    alert_id: Optional[int] = None
+    kpi_name: Optional[str] = None
+    alert_type: Optional[str] = None
+    camera_id: Optional[str] = None
+    camera_name: Optional[str] = None
+    subject: str
+    recipients: list[str]
+    status: str
+    error: Optional[str] = None
+    created_at: datetime
+
+
+class EmailLogsResponse(BaseModel):
+    count: int
+    total: int
+    logs: list[EmailLogItem]

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
 
     FIRE_SMOKE_MODEL_PATH: Optional[Path] = None
 
+    # Symmetric key for encrypting the SMTP password at rest (see .env.example)
+    EMAIL_ENCRYPTION_KEY: Optional[str] = None
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     @field_validator("FIRE_SMOKE_MODEL_PATH", mode="before")
