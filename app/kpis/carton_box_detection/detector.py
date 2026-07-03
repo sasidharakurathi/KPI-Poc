@@ -1,7 +1,7 @@
 import cv2
 import supervision as sv
-from ultralytics import YOLO
 
+from ... import model_registry
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
@@ -22,7 +22,7 @@ class BoxCounterKPI(BaseKPI):
         min_confirm_frames  = max(1, self._get("min_confirm_frames", 2))
         infer_imgsz         = self._get("infer_imgsz", 640)
 
-        model   = YOLO(model_path)
+        model   = model_registry.get_model(model_path)
         tracker = sv.ByteTrack()
         cap     = cv2.VideoCapture(video_path)
 

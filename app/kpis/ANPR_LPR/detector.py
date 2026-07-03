@@ -1,8 +1,8 @@
 import re
 import cv2
 import easyocr
-from ultralytics import YOLO
 
+from ... import model_registry
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
@@ -48,7 +48,7 @@ class AnprLprKPI(BaseKPI):
         frame_skip  = max(1, self._get("frame_skip", 2))
         infer_imgsz = self._get("infer_imgsz",       640)
 
-        model  = YOLO(model_path)
+        model  = model_registry.get_model(model_path)
         reader = _get_reader(gpu)
         cap    = cv2.VideoCapture(video_path)
 

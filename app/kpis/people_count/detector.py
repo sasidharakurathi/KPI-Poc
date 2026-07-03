@@ -1,6 +1,6 @@
 import cv2
-from ultralytics import YOLO
 
+from ... import model_registry
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
@@ -29,7 +29,10 @@ class PeopleCountKPI(BaseKPI):
         min_confirm_frames = max(1, self._get("min_confirm_frames", 2))
         infer_imgsz      = self._get("infer_imgsz", 640)
 
-        model = YOLO(model_path)
+        model = model_registry.get_model(model_path)
+        # Preloaded/shared across jobs — clear leftover ByteTrack state from a
+        # previous video before our own persist=True loop starts.
+        model_registry.reset_tracker(model)
         cap   = cv2.VideoCapture(video_path)
 
         track_seen: dict[int, int] = {}

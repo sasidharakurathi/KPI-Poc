@@ -11,9 +11,9 @@ One alert fires per track (on first threshold crossing).
 import cv2
 import numpy as np
 import supervision as sv
-from ultralytics import YOLO
 from collections import defaultdict
 
+from ... import model_registry
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
@@ -39,7 +39,7 @@ class SmokingKPI(BaseKPI):
         person_imgsz      = self._get("person_imgsz",        640)
         frame_stride      = max(1, self._get("frame_stride", 3))
 
-        cig_model    = YOLO(cig_model_path)
+        cig_model    = model_registry.get_model(cig_model_path)
         tracker      = sv.ByteTrack()
 
         cap = cv2.VideoCapture(video_path)

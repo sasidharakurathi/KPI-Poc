@@ -1,13 +1,17 @@
 import threading
-from ultralytics import YOLO
+
+from .. import model_registry
 
 _RAW_CONF = 0.05
 
 
 class SharedInference:
+    """Per-frame raw-detection cache on top of model_registry's preloaded,
+    process-wide model instances — this class only avoids recomputing the
+    same (model, frame, imgsz) forward pass twice within a single job."""
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._models: dict[str, YOLO] = {}
         self._cache: dict[tuple, list] = {}
 
     def predict_boxes(
@@ -19,10 +23,7 @@ class SharedInference:
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
-            model = self._models.get(model_path)
-            if model is None:
-                model = YOLO(model_path)
-                self._models[model_path] = model
+            model = model_registry.get_model(model_path)
             result = model.predict(
                 frame, conf=_RAW_CONF, imgsz=imgsz, device=device, half=half, verbose=False
             )[0]

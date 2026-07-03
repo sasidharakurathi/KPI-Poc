@@ -1,6 +1,7 @@
 import logging
 import re
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Optional
@@ -9,7 +10,7 @@ from fastapi import BackgroundTasks, Body, FastAPI, File, Form, HTTPException, U
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from . import db, notifications
+from . import db, model_registry, notifications
 from .db import init_db, query_alerts, get_alert
 from .config import settings
 from .config_loader import (
@@ -48,13 +49,40 @@ from .schemas import (
 )
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-settings.ALERTS_DIR.mkdir(parents=True, exist_ok=True)
-init_db()
-db.seed_cameras(get_seed_cameras())
-if db.get_config("timezone") is None:
-    db.set_config("timezone", {"default": "Asia/Riyadh"})
+
+def _enabled_model_paths() -> set[str]:
+    """Every distinct *model_path config value across KPIs that are
+    currently enabled — used to preload exactly what will actually run."""
+    paths: set[str] = set()
+    for cls in get_registry().values():
+        if not get_kpi_param(cls.__name__, "enabled", True):
+            continue
+        cfg = get_kpi_config(cls.__name__)
+        for key, value in cfg.items():
+            if "model_path" in key and isinstance(value, str) and value:
+                paths.add(value)
+    return paths
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    settings.ALERTS_DIR.mkdir(parents=True, exist_ok=True)
+    init_db()
+    db.seed_cameras(get_seed_cameras())
+    if db.get_config("timezone") is None:
+        db.set_config("timezone", {"default": "Asia/Riyadh"})
+
+    paths = _enabled_model_paths()
+    logger.info(f"[startup] preloading {len(paths)} model(s)…")
+    model_registry.preload_all(paths)
+
+    yield   # app serves requests here
+
+    # no teardown needed — models are process-lifetime, DB connections are per-call
+
 
 app = FastAPI(
     title="KPI Video Analytics",
@@ -64,6 +92,7 @@ app = FastAPI(
         "per detection)."
     ),
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

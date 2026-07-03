@@ -18,8 +18,8 @@ EventBus debounces per-track streaks with cooldown.
 import cv2
 import numpy as np
 from collections import defaultdict
-from ultralytics import YOLO
 
+from ... import model_registry
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ..pose_features import PoseFeatures
@@ -142,8 +142,12 @@ class MobileUsageKPI(BaseKPI):
             "max_area_frac_of_person": self._get("max_area_frac_of_person", 0.12),
         }
 
-        pose_model  = YOLO(pose_model_path)
-        cig_model   = YOLO(cig_model_path) if smoking_override else None
+        pose_model  = model_registry.get_model(pose_model_path)
+        # This model instance may be shared with other KPIs (e.g. falling_pose,
+        # both use yolo26m-pose.pt) or a previous video's job — clear any
+        # leftover ByteTrack state before our own persist=True loop starts.
+        model_registry.reset_tracker(pose_model)
+        cig_model   = model_registry.get_model(cig_model_path) if smoking_override else None
 
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0

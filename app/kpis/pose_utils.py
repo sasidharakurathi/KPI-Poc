@@ -1,6 +1,7 @@
 import numpy as np
 from ultralytics import YOLO
 
+from .. import model_registry
 from ..config import settings
 
 _DEFAULT_POSE_MODEL_PATH = "app/models/yolo26s-pose.pt"
@@ -10,7 +11,7 @@ _KEY_INDICES = [5, 6, 11, 12]
 
 
 def load_pose_model(model_path: str) -> YOLO:
-    return YOLO(model_path)
+    return model_registry.get_model(model_path)
 
 
 def run_pose(pose_model: YOLO, frame: np.ndarray, imgsz: int = 640):

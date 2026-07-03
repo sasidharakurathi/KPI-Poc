@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import supervision as sv
 from collections import defaultdict
-from ultralytics import YOLO
 
+from ... import model_registry
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ..pose_utils import _DEFAULT_POSE_MODEL_PATH, load_pose_model, run_pose, human_confirmed_in_box
@@ -60,7 +60,7 @@ class PPEKPI(BaseKPI):
         frame_stride    = max(1, self._get("frame_stride", 2))
         infer_imgsz     = self._get("infer_imgsz",         640)
 
-        model      = YOLO(model_path)
+        model      = model_registry.get_model(model_path)
         pose_model = load_pose_model(pose_model_path)
         tracker    = sv.ByteTrack()
 

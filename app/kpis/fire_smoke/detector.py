@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
+from ... import model_registry
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
@@ -36,7 +36,7 @@ class FireSmokeKPI(BaseKPI):
         min_fire_motion  = self._get("min_fire_motion",     2.5)
         infer_imgsz      = self._get("infer_imgsz",         640)
 
-        model = YOLO(model_path)
+        model = model_registry.get_model(model_path)
         cap   = cv2.VideoCapture(video_path)
         fps   = cap.get(cv2.CAP_PROP_FPS) or 25.0
         hold_frames = int(alarm_hold_secs * fps)
