@@ -1,17 +1,4 @@
-"""Base class for every KPI.
 
-KPIs no longer produce a rendered video. Instead, on each detection a KPI calls
-``self._save_alert(...)`` and the base class saves an 8-frame *raw* clip window
-(no labels) centred on the trigger frame, plus one row in the database.
-
-How the sliding window works:
-  * the KPI loop calls ``self._observe(frame, frame_idx, job_id)`` for EVERY frame
-    read (including skipped/strided frames) so the buffer holds consecutive raw frames;
-  * ``self._save_alert(...)`` snapshots the buffered "before" frames (incl. the anchor)
-    and waits for the next ``ALERT_WINDOW_AFTER`` frames to arrive;
-  * once the trailing frames are in, the whole window is written to disk + DB.
-  * ``self._finalize()`` (called after the loop) flushes any window still waiting.
-"""
 import logging
 from abc import ABC, abstractmethod
 from collections import deque
@@ -164,6 +151,25 @@ class BaseKPI(ABC):
 
         try:
             from ..notifications import notify_alert
+            # Find anchor frame and draw detection boxes on it for the email.
+            anchor_img = next(
+                (img for fidx, img in p.frames if fidx == p.anchor),
+                p.frames[0][1] if p.frames else None,
+            )
+            frame_bytes: Optional[bytes] = None
+            if anchor_img is not None:
+                labeled = anchor_img.copy()
+                if p.boxes:
+                    # Draw only rectangles — no text labels — so no confidence
+                    # values bleed into the email regardless of what the KPI
+                    # put in the label string.
+                    for b in p.boxes:
+                        x1, y1, x2, y2 = int(b[0]), int(b[1]), int(b[2]), int(b[3])
+                        color = b[5] if len(b) > 5 else (0, 0, 255)
+                        cv2.rectangle(labeled, (x1, y1), (x2, y2), color, 3)
+                ok, buf = cv2.imencode(".jpg", labeled, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if ok:
+                    frame_bytes = buf.tobytes()
             notify_alert(
                 kpi_name=self.name,
                 display_name=getattr(self, "display_name", self.name),
@@ -171,6 +177,7 @@ class BaseKPI(ABC):
                 job_id=self._job_id,
                 alert_id=alert_id,
                 confidence=float(p.confidence),
+                frame_bytes=frame_bytes,
             )
         except Exception:
             logger.exception("[%s] failed to dispatch email notification", self.name)

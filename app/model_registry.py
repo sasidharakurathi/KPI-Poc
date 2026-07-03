@@ -1,31 +1,26 @@
-"""
-Preloaded YOLO model registry.
 
-Loads every distinct model file used by the *enabled* KPIs once, at server
-startup (see main.py's lifespan hook), instead of each KPI re-loading its
-own model(s) from disk on every single video job. This is the standard
-pattern for serving ML models behind an API — pay the load cost once at
-boot, not once per request (FastAPI's own docs recommend exactly this via
-the lifespan context manager).
-
-Several KPIs already point at the exact same file (yolo26m.pt,
-yolo26m-pose.pt, cigarette.pt) — preloading means those are loaded once
-total, not once per KPI that uses them.
-
-Concurrency note: safe under this app's MAX_WORKERS=1 (KPIs run
-sequentially, never call a shared model concurrently). `.predict()` calls
-are stateless and safe to share regardless. `.track(persist=True)` calls
-are NOT stateless — see reset_tracker() below.
-"""
 import logging
 import threading
 
+import numpy as np
 from ultralytics import YOLO
+
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
 _models: dict[str, YOLO] = {}
 _lock = threading.Lock()
+
+
+def _warm_up(model: YOLO) -> None:
+    """Run one dummy inference to move the model onto the target device (GPU
+    VRAM when CUDA is available). Without this, YOLO(path) leaves weights in
+    CPU RAM; the move to VRAM only happens on the first real .predict() call."""
+    device = settings.DEVICE
+    half = settings.USE_HALF and device != "cpu"
+    dummy = np.zeros((64, 64, 3), dtype=np.uint8)
+    model.predict(dummy, imgsz=64, device=device, half=half, verbose=False)
 
 
 def get_model(model_path: str) -> YOLO:
@@ -37,6 +32,7 @@ def get_model(model_path: str) -> YOLO:
         if model is None:
             logger.info(f"[model_registry] loading {model_path}")
             model = YOLO(model_path)
+            _warm_up(model)
             _models[model_path] = model
         return model
 
