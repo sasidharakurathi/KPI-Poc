@@ -91,9 +91,13 @@ def run_pipeline(
         model_logs: list[ModelRunLog] = []
         device = settings.DEVICE
 
+        job = job_manager.get(job_id)
+        camera_id = job.camera_id if job else None
+
         job_shared_cache = SharedInference()
         for kpi in kpis:
             kpi.shared_cache = job_shared_cache
+            kpi.camera_id = camera_id
 
         executor = _get_executor()
         futures = {

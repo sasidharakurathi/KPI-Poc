@@ -18,7 +18,7 @@ class BoxCounterKPI(BaseKPI):
 
         model_path         = self._get("model_path",  "app/models/carton-box-detection.pt")
         conf                = self._get("confidence",  0.75)
-        frame_stride        = max(1, self._get("frame_stride", 2))
+        frame_stride        = self._get("frame_stride", 2)
         min_confirm_frames  = max(1, self._get("min_confirm_frames", 2))
         infer_imgsz         = self._get("infer_imgsz", 640)
 
@@ -36,7 +36,7 @@ class BoxCounterKPI(BaseKPI):
             if not ret:
                 break
 
-            if frame_idx % frame_stride != 0:
+            if not self._should_process_frame(frame, frame_idx, frame_stride):
                 frame_idx += 1
                 continue
 

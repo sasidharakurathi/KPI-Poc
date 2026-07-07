@@ -25,7 +25,7 @@ class PeopleCountKPI(BaseKPI):
         min_box_area     = self._get("min_box_area",     _DEFAULT_MIN_BOX_AREA)
         max_pillar_ratio = self._get("max_pillar_ratio", _DEFAULT_MAX_PILLAR_R)
         min_person_ratio = self._get("min_person_ratio", _DEFAULT_MIN_PERSON_R)
-        frame_stride     = max(1, self._get("frame_stride", 2))
+        frame_stride     = self._get("frame_stride", 2)
         min_confirm_frames = max(1, self._get("min_confirm_frames", 2))
         infer_imgsz      = self._get("infer_imgsz", 640)
 
@@ -45,7 +45,7 @@ class PeopleCountKPI(BaseKPI):
             if not ret:
                 break
 
-            if frame_idx % frame_stride != 0:
+            if not self._should_process_frame(frame, frame_idx, frame_stride):
                 frame_idx += 1
                 continue
 

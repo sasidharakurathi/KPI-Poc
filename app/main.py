@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from . import db, model_registry, notifications
+from .clip_processor import clip_processor
 from .db import init_db, query_alerts, get_alert
 from .config import settings
 from .config_loader import (
@@ -27,6 +28,7 @@ from .email_crypto import EmailCryptoNotConfigured, encrypt_secret
 from .job_manager import job_manager
 from .kpis import get_registered_kpis, get_registry, list_registered_names
 from .pipeline import run_pipeline
+from .stream_recorder import stream_recorder_manager
 from .schemas import (
     CameraCreate,
     CameraInfo,
@@ -70,6 +72,7 @@ def _enabled_model_paths() -> set[str]:
 async def lifespan(_app: FastAPI):
     settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     settings.ALERTS_DIR.mkdir(parents=True, exist_ok=True)
+    settings.RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
     db.seed_cameras(get_seed_cameras())
     if db.get_config("timezone") is None:
@@ -79,9 +82,14 @@ async def lifespan(_app: FastAPI):
     logger.info(f"[startup] preloading {len(paths)} model(s)…")
     model_registry.preload_all(paths)
 
+    clip_processor.start()
+    stream_recorder_manager.start_all()
+    logger.info("[startup] clip processor + IP camera recorders started")
+
     yield   # app serves requests here
 
-    # no teardown needed — models are process-lifetime, DB connections are per-call
+    stream_recorder_manager.stop_all()
+    clip_processor.stop()
 
 
 app = FastAPI(
@@ -368,6 +376,8 @@ async def list_cameras():
                 1 for kid in cam.kpi_ids
                 if registry.get(str(kid)) in implemented_names
             ),
+            recording_enabled=cam.recording_enabled,
+            stream_status=stream_recorder_manager.status_for(cam.camera_id)["status"],
         )
         for cam in db.list_cameras()
     ]
@@ -384,24 +394,46 @@ async def get_camera_detail(camera_id: str):
 
 @app.post("/api/cameras", response_model=CameraInfo, status_code=201)
 async def create_camera(body: CameraCreate):
+    encrypted_pw = None
+    if body.stream_password:
+        try:
+            encrypted_pw = encrypt_secret(body.stream_password)
+        except EmailCryptoNotConfigured as e:
+            raise HTTPException(status_code=500, detail=str(e))
     try:
         cam = db.create_camera(
             camera_id=body.camera_id, name=body.name,
             zone=body.zone, priority=body.priority, kpi_ids=body.kpi_ids,
+            camera_ip=body.camera_ip, rtsp_port=body.rtsp_port,
+            stream_username=body.stream_username,
+            stream_password_encrypted=encrypted_pw,
+            stream_path=body.stream_path, recording_enabled=body.recording_enabled,
         )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    stream_recorder_manager.sync_camera(cam.camera_id)
     return _camera_to_info(cam)
 
 
 @app.put("/api/cameras/{camera_id}", response_model=CameraInfo)
 async def update_camera(camera_id: str, body: CameraUpdate):
+    encrypted_pw = None
+    if body.stream_password:   # blank/omitted = keep the existing stored password
+        try:
+            encrypted_pw = encrypt_secret(body.stream_password)
+        except EmailCryptoNotConfigured as e:
+            raise HTTPException(status_code=500, detail=str(e))
     cam = db.update_camera(
         camera_id, name=body.name, zone=body.zone,
         priority=body.priority, kpi_ids=body.kpi_ids,
+        camera_ip=body.camera_ip, rtsp_port=body.rtsp_port,
+        stream_username=body.stream_username,
+        stream_password_encrypted=encrypted_pw,
+        stream_path=body.stream_path, recording_enabled=body.recording_enabled,
     )
     if not cam:
         raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
+    stream_recorder_manager.sync_camera(camera_id)
     return _camera_to_info(cam)
 
 
@@ -409,6 +441,7 @@ async def update_camera(camera_id: str, body: CameraUpdate):
 async def delete_camera(camera_id: str):
     if not db.delete_camera(camera_id):
         raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
+    stream_recorder_manager.sync_camera(camera_id)   # stream config gone → stop its recorder
 
 
 def _camera_to_info(cam: db.Camera) -> CameraInfo:
@@ -422,9 +455,15 @@ def _camera_to_info(cam: db.Camera) -> CameraInfo:
         )
         for kid in cam.kpi_ids
     ]
+    stream_status = stream_recorder_manager.status_for(cam.camera_id)
     return CameraInfo(
         camera_id=cam.camera_id, name=cam.name, zone=cam.zone,
         priority=cam.priority, kpi_ids=cam.kpi_ids, kpis=kpis_detail,
+        camera_ip=cam.camera_ip, rtsp_port=cam.rtsp_port,
+        stream_username=cam.stream_username, stream_path=cam.stream_path,
+        stream_password_set=bool(cam.stream_password_encrypted),
+        recording_enabled=cam.recording_enabled,
+        stream_status=stream_status["status"], stream_error=stream_status["error"],
     )
 
 

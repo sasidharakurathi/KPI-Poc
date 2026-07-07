@@ -37,7 +37,7 @@ class SmokingKPI(BaseKPI):
         upper_frac        = self._get("upper_body_fraction", 0.60)
         cig_imgsz         = self._get("cigarette_imgsz",     320)
         person_imgsz      = self._get("person_imgsz",        640)
-        frame_stride      = max(1, self._get("frame_stride", 3))
+        frame_stride      = self._get("frame_stride", 3)
 
         cig_model    = model_registry.get_model(cig_model_path)
         tracker      = sv.ByteTrack()
@@ -59,7 +59,7 @@ class SmokingKPI(BaseKPI):
 
             self._observe(frame, frame_idx, job_id)
 
-            if frame_idx % frame_stride != 0:
+            if not self._should_process_frame(frame, frame_idx, frame_stride):
                 frame_idx += 1
                 continue
 

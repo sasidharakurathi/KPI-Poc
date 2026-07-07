@@ -57,7 +57,7 @@ class PPEKPI(BaseKPI):
         overlap_thr     = self._get("overlap_threshold",  0.30)
         alarm_secs      = self._get("alarm_seconds",      2.0)
         alert_hold_secs = self._get("alert_hold_seconds", 4.0)
-        frame_stride    = max(1, self._get("frame_stride", 2))
+        frame_stride    = self._get("frame_stride", 2)
         infer_imgsz     = self._get("infer_imgsz",         640)
 
         model      = model_registry.get_model(model_path)
@@ -82,7 +82,7 @@ class PPEKPI(BaseKPI):
 
             self._observe(frame, frame_idx, job_id)
 
-            if frame_idx % frame_stride != 0:
+            if not self._should_process_frame(frame, frame_idx, frame_stride):
                 frame_idx += 1
                 continue
 

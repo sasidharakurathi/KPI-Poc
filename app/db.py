@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from sqlmodel import Column, Field, Relationship, Session, SQLModel, create_engine, select
-from sqlalchemy import JSON as _JSON, func as _func
+from sqlalchemy import JSON as _JSON, func as _func, inspect as _inspect, text as _text
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,16 @@ class Camera(SQLModel, table=True):
     zone: str = ""
     priority: str = "medium"
     kpi_ids: list = Field(default_factory=list, sa_column=Column(_JSON))
+
+    # IP camera continuous recording — stream_password is stored encrypted
+    # (see email_crypto.encrypt_secret/decrypt_secret, reused generically here).
+    camera_ip: Optional[str] = None
+    rtsp_port: int = 554
+    stream_username: Optional[str] = None
+    stream_password_encrypted: Optional[str] = None
+    stream_path: str = ""
+    recording_enabled: bool = False
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -111,7 +121,41 @@ def get_engine():
     return _engine
 
 
+def _migrate_camera_stream_columns() -> None:
+    """Adds the IP-camera-recording columns to a pre-existing `cameras` table.
+    SQLModel.metadata.create_all() only creates missing tables — it never
+    alters an existing table's columns — so a DB created before these fields
+    were added to the Camera model needs them added explicitly here. No-op
+    for a fresh DB (create_all() will make the table with every column)."""
+    engine = get_engine()
+    inspector = _inspect(engine)
+    if "cameras" not in inspector.get_table_names():
+        return
+
+    existing = {col["name"] for col in inspector.get_columns("cameras")}
+    is_postgres = engine.dialect.name == "postgresql"
+    columns: list[tuple[str, str, str]] = [
+        ("camera_ip",                 "VARCHAR", ""),
+        ("rtsp_port",                 "INTEGER", " DEFAULT 554"),
+        ("stream_username",           "VARCHAR", ""),
+        ("stream_password_encrypted", "VARCHAR", ""),
+        ("stream_path",               "VARCHAR", " DEFAULT ''"),
+        ("recording_enabled",         "BOOLEAN", " DEFAULT FALSE"),
+    ]
+
+    with engine.begin() as conn:
+        for name, col_type, default_sql in columns:
+            if name in existing:
+                continue
+            ddl = f"ALTER TABLE cameras ADD COLUMN "
+            ddl += f"IF NOT EXISTS {name} {col_type}{default_sql}" if is_postgres \
+                else f"{name} {col_type}{default_sql}"
+            conn.execute(_text(ddl))
+            logger.info(f"[migrate] added cameras.{name}")
+
+
 def init_db() -> None:
+    _migrate_camera_stream_columns()
     SQLModel.metadata.create_all(get_engine())
 
 
@@ -248,6 +292,12 @@ def create_camera(
     zone: str = "",
     priority: str = "medium",
     kpi_ids: Optional[list[int]] = None,
+    camera_ip: Optional[str] = None,
+    rtsp_port: int = 554,
+    stream_username: Optional[str] = None,
+    stream_password_encrypted: Optional[str] = None,
+    stream_path: str = "",
+    recording_enabled: bool = False,
 ) -> Camera:
     with get_session() as session:
         if session.get(Camera, camera_id):
@@ -255,6 +305,10 @@ def create_camera(
         camera = Camera(
             camera_id=camera_id, name=name, zone=zone,
             priority=priority, kpi_ids=kpi_ids or [],
+            camera_ip=camera_ip, rtsp_port=rtsp_port,
+            stream_username=stream_username,
+            stream_password_encrypted=stream_password_encrypted,
+            stream_path=stream_path, recording_enabled=recording_enabled,
         )
         session.add(camera)
         session.commit()
@@ -268,6 +322,12 @@ def update_camera(
     zone: Optional[str] = None,
     priority: Optional[str] = None,
     kpi_ids: Optional[list[int]] = None,
+    camera_ip: Optional[str] = None,
+    rtsp_port: Optional[int] = None,
+    stream_username: Optional[str] = None,
+    stream_password_encrypted: Optional[str] = None,
+    stream_path: Optional[str] = None,
+    recording_enabled: Optional[bool] = None,
 ) -> Optional[Camera]:
     with get_session() as session:
         camera = session.get(Camera, camera_id)
@@ -281,6 +341,18 @@ def update_camera(
             camera.priority = priority
         if kpi_ids is not None:
             camera.kpi_ids = kpi_ids
+        if camera_ip is not None:
+            camera.camera_ip = camera_ip
+        if rtsp_port is not None:
+            camera.rtsp_port = rtsp_port
+        if stream_username is not None:
+            camera.stream_username = stream_username
+        if stream_password_encrypted is not None:
+            camera.stream_password_encrypted = stream_password_encrypted
+        if stream_path is not None:
+            camera.stream_path = stream_path
+        if recording_enabled is not None:
+            camera.recording_enabled = recording_enabled
         camera.updated_at = datetime.utcnow()
         session.add(camera)
         session.commit()

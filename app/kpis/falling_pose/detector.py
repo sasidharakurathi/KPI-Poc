@@ -56,7 +56,7 @@ class FallingPoseKPI(BaseKPI):
         pose_model_path    = self._get("pose_model_path",        "app/models/yolo26m-pose.pt")
         person_conf        = self._get("confidence",              0.30)
         kp_conf            = self._get("kp_conf",                0.30)
-        frame_stride       = max(1, self._get("frame_stride",    2))
+        frame_stride       = self._get("frame_stride",           2)
         require_full_body  = self._get("require_full_body",      True)
         fall_consec        = self._get("fall_consecutive_frames", 5)
         cooldown_secs      = self._get("cooldown_secs",           8.0)
@@ -87,7 +87,7 @@ class FallingPoseKPI(BaseKPI):
 
             self._observe(frame, frame_idx, job_id)
 
-            if frame_idx % frame_stride != 0:
+            if not self._should_process_frame(frame, frame_idx, frame_stride):
                 frame_idx += 1
                 continue
 

@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from .. import db
+from ..adaptive_controller import adaptive_controller
 from .shared_inference import SharedInference
 from ..config import settings
 
@@ -82,8 +83,63 @@ class BaseKPI(ABC):
         self._job_id: str = ""
         self.shared_cache = SharedInference()
 
+        # Set by pipeline.run_pipeline() before process_video() runs, when the
+        # job belongs to a camera — enables the adaptive frame-gating below.
+        # Stays None for camera-less manual uploads (gating becomes a no-op).
+        self.camera_id: Optional[str] = None
+        self._motion_gate_frame: Optional[np.ndarray] = None
+
     def _get(self, key: str, default: Any = None) -> Any:
         return self._cfg.get(key, default)
+
+    # ── adaptive frame gating ──────────────────────────────────────────────────
+
+    def _effective_stride(self, base_stride: int) -> int:
+        """base_stride widened by this camera's current adaptive skip
+        multiplier (see adaptive_controller) — never narrower than configured,
+        since that's the finest granularity the KPI was tuned to need."""
+        base_stride = max(1, base_stride)
+        if not self.camera_id:
+            return base_stride
+        multiplier = adaptive_controller.get_multiplier(self.camera_id)
+        return max(base_stride, round(base_stride * multiplier))
+
+    def _should_process_frame(
+        self, frame: np.ndarray, frame_idx: int, base_stride: int, motion_threshold: float = 6.0,
+    ) -> bool:
+        """Combines two techniques to decide whether to run inference on this
+        frame, replacing a plain `frame_idx % frame_stride` check:
+
+        1. Adaptive stride — base_stride is widened under sustained processing
+           load for this camera (see _effective_stride), so an overloaded
+           camera automatically thins out how many frames it inspects to
+           catch back up with the live recording rate.
+        2. Motion override — even on a stride-skipped frame, if the scene
+           changed enough since the last frame actually processed (something
+           entered/left view), it's processed anyway. A busy scene is never
+           silently starved just because the stride said to skip it; only
+           genuinely static frames are skipped more aggressively under load.
+
+        Uses a 24x24 downsampled grayscale mean-abs-diff — a few orders of
+        magnitude cheaper than running inference, so checking every frame
+        (even ones ultimately skipped) is negligible next to model cost.
+        """
+        stride = self._effective_stride(base_stride)
+        on_stride = (frame_idx % stride == 0)
+
+        small = cv2.resize(
+            cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (24, 24), interpolation=cv2.INTER_AREA
+        ).astype(np.int16)
+
+        if self._motion_gate_frame is None:
+            self._motion_gate_frame = small
+            return True   # always process the first frame
+
+        changed = np.abs(small - self._motion_gate_frame).mean() >= motion_threshold
+        if on_stride or changed:
+            self._motion_gate_frame = small
+            return True
+        return False
 
     # ── sliding-window frame capture ──────────────────────────────────────────
 

@@ -117,7 +117,7 @@ class MobileUsageKPI(BaseKPI):
         phone_conf      = self._get("phone_confidence",  0.25)
         kp_conf         = self._get("kp_conf",           0.30)
         person_conf     = self._get("confidence",        0.30)
-        frame_stride    = max(1, self._get("frame_stride", 3))
+        frame_stride    = self._get("frame_stride", 3)
         pose_imgsz      = self._get("pose_imgsz",  640)
         phone_imgsz     = self._get("phone_imgsz", 640)
         persist_frames  = self._get("persist_frames",  3)
@@ -168,7 +168,7 @@ class MobileUsageKPI(BaseKPI):
 
             self._observe(frame, frame_idx, job_id)
 
-            if frame_idx % frame_stride != 0:
+            if not self._should_process_frame(frame, frame_idx, frame_stride):
                 frame_idx += 1
                 continue
 

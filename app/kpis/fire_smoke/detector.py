@@ -31,7 +31,7 @@ class FireSmokeKPI(BaseKPI):
         alarm_threshold  = self._get("alarm_frame_threshold",15)
         fire_threshold   = self._get("fire_frame_threshold",  5)
         alarm_hold_secs  = self._get("alarm_hold_seconds",   3.0)
-        frame_stride     = max(1, self._get("frame_stride",  2))
+        frame_stride     = self._get("frame_stride",         2)
         min_smoke_motion = self._get("min_smoke_motion",    2.5)
         min_fire_motion  = self._get("min_fire_motion",     2.5)
         infer_imgsz      = self._get("infer_imgsz",         640)
@@ -59,7 +59,7 @@ class FireSmokeKPI(BaseKPI):
 
             self._observe(frame, frame_idx, job_id)
 
-            if frame_idx % frame_stride != 0:
+            if not self._should_process_frame(frame, frame_idx, frame_stride):
                 frame_idx += 1
                 continue
 

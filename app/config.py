@@ -14,6 +14,7 @@ def _default_device() -> str:
 class Settings(BaseSettings):
     UPLOAD_DIR: Path = BASE_DIR / "storage" / "uploads"
     ALERTS_DIR: Path = BASE_DIR / "storage" / "alerts"
+    RECORDINGS_DIR: Path = BASE_DIR / "storage" / "recordings"
     DATABASE_URL: str = f"sqlite:///{(BASE_DIR / 'storage' / 'app.db').as_posix()}"
     DEVICE: str = _default_device()
     USE_HALF: bool = True
@@ -21,6 +22,10 @@ class Settings(BaseSettings):
     ALERT_WINDOW_BEFORE: int = 4
     ALERT_WINDOW_AFTER: int = 3
     MAX_WORKERS: int = 4
+
+    # IP camera continuous recording
+    STREAM_CLIP_SECONDS: int = 120
+    STREAM_RECONNECT_DELAY: float = 5.0
 
     FIRE_SMOKE_MODEL_PATH: Optional[Path] = None
 

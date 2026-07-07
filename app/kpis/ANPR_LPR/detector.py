@@ -45,7 +45,7 @@ class AnprLprKPI(BaseKPI):
         aspect_min  = self._get("aspect_ratio_min",  0.5)
         aspect_max  = self._get("aspect_ratio_max",  7.0)
         min_chars   = self._get("min_plate_chars",   4)
-        frame_skip  = max(1, self._get("frame_skip", 2))
+        frame_skip  = self._get("frame_skip", 2)
         infer_imgsz = self._get("infer_imgsz",       640)
 
         model  = model_registry.get_model(model_path)
@@ -64,7 +64,7 @@ class AnprLprKPI(BaseKPI):
 
             self._observe(frame, frame_idx, job_id)
 
-            if frame_idx % frame_skip != 0:
+            if not self._should_process_frame(frame, frame_idx, frame_skip):
                 frame_idx += 1
                 continue
 
