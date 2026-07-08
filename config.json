@@ -541,11 +541,11 @@
         }
     },
     "AnprLprKPI": {
-        "enabled": true,
+        "enabled": false,
         "model_path": "app/models/anpr_lpr.pt",
         "confidence": 0.3,
         "aspect_ratio_min": 0.5,
-        "aspect_ratio_max": 7.0,
+        "aspect_ratio_max": 7,
         "min_plate_chars": 4,
         "frame_skip": 2,
         "infer_imgsz": 640
@@ -664,7 +664,7 @@
         "infer_imgsz": 640
     },
     "BoxCounterKPI": {
-        "enabled": true,
+        "enabled": false,
         "model_path": "app/models/carton-box-detection.pt",
         "confidence": 0.75,
         "frame_stride": 2,

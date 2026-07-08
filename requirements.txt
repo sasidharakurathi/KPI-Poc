@@ -19,3 +19,7 @@ easyocr
 sqlmodel
 psycopg[binary]
 cryptography
+
+onnx
+onnxslim
+tensorrt-cu12==10.7.0

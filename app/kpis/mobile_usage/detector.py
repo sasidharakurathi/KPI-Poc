@@ -26,6 +26,8 @@ from ..pose_features import PoseFeatures
 from ..event_bus import EventBus
 from ...config import settings
 
+_BATCH_SIZE = 8
+
 
 def _iou_frac(box_a, box_b) -> float:
     """Fraction of box_b that overlaps box_a."""
@@ -117,7 +119,7 @@ class MobileUsageKPI(BaseKPI):
         phone_conf      = self._get("phone_confidence",  0.25)
         kp_conf         = self._get("kp_conf",           0.30)
         person_conf     = self._get("confidence",        0.30)
-        frame_stride    = self._get("frame_stride", 3)
+        frame_stride    = max(1, self._get("frame_stride", 3))
         pose_imgsz      = self._get("pose_imgsz",  640)
         phone_imgsz     = self._get("phone_imgsz", 640)
         persist_frames  = self._get("persist_frames",  3)
@@ -160,29 +162,13 @@ class MobileUsageKPI(BaseKPI):
         alert_events = 0
         total_tracks: set[int] = set()
         frame_idx = 0
+        batch: list[tuple[int, np.ndarray]] = []
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            self._observe(frame, frame_idx, job_id)
-
-            if not self._should_process_frame(frame, frame_idx, frame_stride):
-                frame_idx += 1
-                continue
-
-            # ── 1. Pose + person tracking ──────────────────────────────────────
-            pose_res = pose_model.track(
-                frame, persist=True, tracker="bytetrack.yaml",
-                classes=[0], conf=person_conf, imgsz=pose_imgsz,
-                device=device, half=half, verbose=False,
-            )
-            r = pose_res[0]
+        def _process_one(fidx: int, frame: np.ndarray, r, phone_boxes_raw_for_frame: list) -> None:
+            nonlocal alert_events
 
             if r.boxes.id is None or r.keypoints is None:
-                frame_idx += 1
-                continue
+                return
 
             track_ids   = r.boxes.id.int().cpu().tolist()
             boxes_xyxy  = r.boxes.xyxy.cpu().numpy()
@@ -196,7 +182,7 @@ class MobileUsageKPI(BaseKPI):
                     pf_map[tid] = PoseFeatures()
                 feats.append(pf_map[tid].update(kp, kconf, tuple(map(int, bbox)), conf_thr=kp_conf))
 
-            # ── 2. Cigarette: collect upper-body + wrist-region crops (batched) ─
+            # ── Cigarette: collect upper-body + wrist-region crops (batched per frame) ─
             crops: list[np.ndarray] = []
             crop_to_person: list[int] = []
 
@@ -234,19 +220,16 @@ class MobileUsageKPI(BaseKPI):
                     if len(cr.boxes) > 0:
                         smoking_persons.add(crop_to_person[j])
 
-            # ── 3. Phone detection on full frame
-            raw_boxes = self.shared_cache.predict_boxes(
-                phone_model_path, frame_idx, frame, phone_imgsz, device, half
-            )
+            # ── Phone detection (already run in batch — just filter this frame's boxes)
             phone_boxes_raw = []
             phone_conf_by_box: dict[tuple, float] = {}
-            for x1, y1, x2, y2, cls_id, conf in raw_boxes:
+            for x1, y1, x2, y2, cls_id, conf in phone_boxes_raw_for_frame:
                 if cls_id == 67 and conf >= phone_conf:   # yolo26m.pt (COCO): 67 = cell phone
                     b = [int(x1), int(y1), int(x2), int(y2)]
                     phone_boxes_raw.append(b)
                     phone_conf_by_box[tuple(b)] = conf
 
-            # ── 4. Per-person decision ─────────────────────────────────────────
+            # ── Per-person decision ─────────────────────────────────────────
             smoking_boxes_xyxy = set()
             for sidx in smoking_persons:
                 b = boxes_xyxy[sidx]
@@ -263,7 +246,7 @@ class MobileUsageKPI(BaseKPI):
             ):
                 if idx_p in smoking_persons:
                     feat["suppress_mobile"] = True
-                    bus.submit(tid, False, frame_idx)
+                    bus.submit(tid, False, fidx)
                     continue
 
                 # associate phone to this person
@@ -278,7 +261,7 @@ class MobileUsageKPI(BaseKPI):
                                feat["min_wrist_nose"] <= hand_ear_thr * 1.5
                     phone_hit = elbow_ok or wrist_ok   # either is sufficient
 
-                if bus.submit(tid, phone_hit, frame_idx):
+                if bus.submit(tid, phone_hit, fidx):
                     alert_events += 1
                     x1, y1, x2, y2 = map(int, bbox)
                     boxes_for_label = [(x1, y1, x2, y2, f"ID {tid} MOBILE", (220, 130, 0))]
@@ -289,13 +272,50 @@ class MobileUsageKPI(BaseKPI):
                         default=phone_conf,
                     )
                     self._save_alert(
-                        "phone_usage_confirmed", job_id, frame_idx,
+                        "phone_usage_confirmed", job_id, fidx,
                         confidence=round(best_conf, 3),
                         extra={"track_id": int(tid)},
                         boxes=boxes_for_label,
                     )
 
+        def _flush_batch() -> None:
+            nonlocal batch
+            if not batch:
+                return
+            frames = [f for _, f in batch]
+
+            # ── 1. Pose + person tracking, batched ──────────────────────────
+            pose_res_list = pose_model.track(
+                frames, persist=True, tracker="bytetrack.yaml",
+                classes=[0], conf=person_conf, imgsz=pose_imgsz,
+                device=device, half=half, verbose=False,
+            )
+
+            # ── 2. Phone detection on full frame, batched via SharedInference
+            phone_boxes_by_frame = self.shared_cache.predict_boxes_batch(
+                phone_model_path, batch, phone_imgsz, device, half
+            )
+
+            for (fidx, frame), r in zip(batch, pose_res_list):
+                _process_one(fidx, frame, r, phone_boxes_by_frame.get(fidx, []))
+
+            batch = []
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            self._observe(frame, frame_idx, job_id)
+
+            if frame_idx % frame_stride == 0:
+                batch.append((frame_idx, frame))
+                if len(batch) >= _BATCH_SIZE:
+                    _flush_batch()
+
             frame_idx += 1
+
+        _flush_batch()
 
         cap.release()
         self._finalize()

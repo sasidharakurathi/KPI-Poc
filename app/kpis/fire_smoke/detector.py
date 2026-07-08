@@ -6,6 +6,8 @@ from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
 
+_BATCH_SIZE = 8
+
 
 def _roi_motion_score(cur_gray: np.ndarray, prev_gray: np.ndarray, box) -> float:
     """Mean pixel change within box between two grayscale frames."""
@@ -31,7 +33,7 @@ class FireSmokeKPI(BaseKPI):
         alarm_threshold  = self._get("alarm_frame_threshold",15)
         fire_threshold   = self._get("fire_frame_threshold",  5)
         alarm_hold_secs  = self._get("alarm_hold_seconds",   3.0)
-        frame_stride     = self._get("frame_stride",         2)
+        frame_stride     = max(1, self._get("frame_stride",  2))
         min_smoke_motion = self._get("min_smoke_motion",    2.5)
         min_fire_motion  = self._get("min_fire_motion",     2.5)
         infer_imgsz      = self._get("infer_imgsz",         640)
@@ -51,6 +53,91 @@ class FireSmokeKPI(BaseKPI):
 
         smoke_events = fire_events = 0
         frame_idx = 0
+        batch: list[tuple[int, np.ndarray]] = []
+
+        def _process_one(fidx: int, frame: np.ndarray, results) -> None:
+            nonlocal smoke_persistence, smoke_alarm_active, last_smoke_frame
+            nonlocal fire_persistence, fire_alarm_active, last_fire_frame
+            nonlocal prev_gray, smoke_events, fire_events
+
+            cur_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            smoke_this = fire_this = False
+            smoke_boxes = []
+            fire_boxes  = []
+
+            for box in results.boxes:
+                cls_id   = int(box.cls[0])
+                conf_val = float(box.conf[0])
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                if cls_id == 0 and conf_val >= smoke_conf:
+                    if prev_gray is not None and _roi_motion_score(
+                        cur_gray, prev_gray, (x1, y1, x2, y2)
+                    ) < min_smoke_motion:
+                        continue
+                    smoke_this = True
+                    smoke_boxes.append((x1, y1, x2, y2, f"smoke {conf_val:.2f}", (128, 128, 128)))
+                elif cls_id == 1 and conf_val >= fire_conf:
+                    if prev_gray is not None and _roi_motion_score(
+                        cur_gray, prev_gray, (x1, y1, x2, y2)
+                    ) < min_fire_motion:
+                        continue
+                    fire_this = True
+                    fire_boxes.append((x1, y1, x2, y2, f"fire {conf_val:.2f}", (0, 80, 255)))
+
+            prev_gray = cur_gray
+
+            # smoke logic
+            if smoke_this:
+                smoke_persistence += 1
+                last_smoke_frame   = fidx
+                if smoke_persistence >= alarm_threshold and not smoke_alarm_active:
+                    smoke_alarm_active = True
+                    smoke_events += 1
+                    best_conf = max((float(b[4].split()[-1]) for b in smoke_boxes), default=smoke_conf)
+                    self._save_alert(
+                        "smoke_alarm", job_id, fidx,
+                        confidence=best_conf,
+                        extra={"persistence": smoke_persistence},
+                        boxes=smoke_boxes,
+                    )
+            else:
+                smoke_persistence = max(0, smoke_persistence - 1)
+                if smoke_alarm_active and (fidx - last_smoke_frame) > hold_frames:
+                    smoke_alarm_active = False
+                    smoke_persistence  = 0
+
+            if fire_this:
+                fire_persistence += 1
+                last_fire_frame   = fidx
+                if fire_persistence >= fire_threshold and not fire_alarm_active:
+                    fire_alarm_active = True
+                    fire_events += 1
+                    best_conf = max((float(b[4].split()[-1]) for b in fire_boxes), default=fire_conf)
+                    self._save_alert(
+                        "fire_detected", job_id, fidx,
+                        confidence=best_conf,
+                        extra={"persistence": fire_persistence},
+                        boxes=fire_boxes,
+                    )
+            else:
+                fire_persistence = max(0, fire_persistence - 1)
+                if fire_alarm_active and (fidx - last_fire_frame) > hold_frames:
+                    fire_alarm_active = False
+                    fire_persistence  = 0
+
+        def _flush_batch() -> None:
+            nonlocal batch
+            if not batch:
+                return
+            frames = [f for _, f in batch]
+            results_list = model.predict(
+                frames, conf=smoke_conf, imgsz=infer_imgsz,
+                device=device, half=half, verbose=False,
+            )
+            for (fidx, frame), results in zip(batch, results_list):
+                _process_one(fidx, frame, results)
+            batch = []
 
         while cap.isOpened():
             ret, frame = cap.read()
@@ -59,80 +146,14 @@ class FireSmokeKPI(BaseKPI):
 
             self._observe(frame, frame_idx, job_id)
 
-            if not self._should_process_frame(frame, frame_idx, frame_stride):
-                frame_idx += 1
-                continue
-
-            results  = model.predict(frame, conf=smoke_conf, imgsz=infer_imgsz,
-                                    device=device, half=half, verbose=False)
-            cur_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-            smoke_this = fire_this = False
-            smoke_boxes = []
-            fire_boxes  = []
-
-            for r in results:
-                for box in r.boxes:
-                    cls_id   = int(box.cls[0])
-                    conf_val = float(box.conf[0])
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    if cls_id == 0 and conf_val >= smoke_conf:
-                        if prev_gray is not None and _roi_motion_score(
-                            cur_gray, prev_gray, (x1, y1, x2, y2)
-                        ) < min_smoke_motion:
-                            continue
-                        smoke_this = True
-                        smoke_boxes.append((x1, y1, x2, y2, f"smoke {conf_val:.2f}", (128, 128, 128)))
-                    elif cls_id == 1 and conf_val >= fire_conf:
-                        if prev_gray is not None and _roi_motion_score(
-                            cur_gray, prev_gray, (x1, y1, x2, y2)
-                        ) < min_fire_motion:
-                            continue
-                        fire_this = True
-                        fire_boxes.append((x1, y1, x2, y2, f"fire {conf_val:.2f}", (0, 80, 255)))
-
-            prev_gray = cur_gray
-
-            # smoke logic
-            if smoke_this:
-                smoke_persistence += 1
-                last_smoke_frame   = frame_idx
-                if smoke_persistence >= alarm_threshold and not smoke_alarm_active:
-                    smoke_alarm_active = True
-                    smoke_events += 1
-                    best_conf = max((float(b[4].split()[-1]) for b in smoke_boxes), default=smoke_conf)
-                    self._save_alert(
-                        "smoke_alarm", job_id, frame_idx,
-                        confidence=best_conf,
-                        extra={"persistence": smoke_persistence},
-                        boxes=smoke_boxes,
-                    )
-            else:
-                smoke_persistence = max(0, smoke_persistence - 1)
-                if smoke_alarm_active and (frame_idx - last_smoke_frame) > hold_frames:
-                    smoke_alarm_active = False
-                    smoke_persistence  = 0
-
-            if fire_this:
-                fire_persistence += 1
-                last_fire_frame   = frame_idx
-                if fire_persistence >= fire_threshold and not fire_alarm_active:
-                    fire_alarm_active = True
-                    fire_events += 1
-                    best_conf = max((float(b[4].split()[-1]) for b in fire_boxes), default=fire_conf)
-                    self._save_alert(
-                        "fire_detected", job_id, frame_idx,
-                        confidence=best_conf,
-                        extra={"persistence": fire_persistence},
-                        boxes=fire_boxes,
-                    )
-            else:
-                fire_persistence = max(0, fire_persistence - 1)
-                if fire_alarm_active and (frame_idx - last_fire_frame) > hold_frames:
-                    fire_alarm_active = False
-                    fire_persistence  = 0
+            if frame_idx % frame_stride == 0:
+                batch.append((frame_idx, frame))
+                if len(batch) >= _BATCH_SIZE:
+                    _flush_batch()
 
             frame_idx += 1
+
+        _flush_batch()
 
         cap.release()
         self._finalize()

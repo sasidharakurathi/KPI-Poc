@@ -23,6 +23,8 @@ from ...config import settings
 # Shoulder, hip, knee, ankle groups — at least one side must be visible per group
 _FULL_BODY_GROUPS = [(L_SH, R_SH), (L_HIP, R_HIP), (L_KN, R_KN), (L_AN, R_AN)]
 
+_BATCH_SIZE = 8
+
 
 def _full_body_visible(kconf: np.ndarray, thr: float) -> bool:
     for a, b in _FULL_BODY_GROUPS:
@@ -56,7 +58,7 @@ class FallingPoseKPI(BaseKPI):
         pose_model_path    = self._get("pose_model_path",        "app/models/yolo26m-pose.pt")
         person_conf        = self._get("confidence",              0.30)
         kp_conf            = self._get("kp_conf",                0.30)
-        frame_stride       = self._get("frame_stride",           2)
+        frame_stride       = max(1, self._get("frame_stride",    2))
         require_full_body  = self._get("require_full_body",      True)
         fall_consec        = self._get("fall_consecutive_frames", 5)
         cooldown_secs      = self._get("cooldown_secs",           8.0)
@@ -79,28 +81,13 @@ class FallingPoseKPI(BaseKPI):
 
         alert_events = 0
         frame_idx    = 0
+        batch: list[tuple[int, np.ndarray]] = []
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            self._observe(frame, frame_idx, job_id)
-
-            if not self._should_process_frame(frame, frame_idx, frame_stride):
-                frame_idx += 1
-                continue
-
-            pose_res = pose_model.track(
-                frame, persist=True, tracker="bytetrack.yaml",
-                classes=[0], conf=person_conf, imgsz=infer_imgsz,
-                device=device, half=half, verbose=False,
-            )
-            r = pose_res[0]
+        def _process_one(fidx: int, r) -> None:
+            nonlocal alert_events
 
             if r.boxes.id is None or r.keypoints is None:
-                frame_idx += 1
-                continue
+                return
 
             track_ids  = r.boxes.id.int().cpu().tolist()
             boxes_xyxy = r.boxes.xyxy.cpu().numpy()
@@ -110,7 +97,7 @@ class FallingPoseKPI(BaseKPI):
             for tid, bbox, kp, kconf in zip(track_ids, boxes_xyxy, kps_xy, kps_conf):
                 # full-body gate
                 if require_full_body and not _full_body_visible(kconf, kp_conf):
-                    bus.submit(tid, False, frame_idx)
+                    bus.submit(tid, False, fidx)
                     continue
 
                 if tid not in pf_map:
@@ -119,18 +106,46 @@ class FallingPoseKPI(BaseKPI):
 
                 falling = _is_falling(feat, horiz_angle_thr, horiz_aspect_thr, floor_aspect_thr)
 
-                if bus.submit(tid, falling, frame_idx):
+                if bus.submit(tid, falling, fidx):
                     alert_events += 1
                     x1, y1, x2, y2 = map(int, bbox)
                     self._save_alert(
-                        "fall_detected", job_id, frame_idx,
+                        "fall_detected", job_id, fidx,
                         extra={"track_id": int(tid),
                                "torso_angle": round(feat["torso_angle"], 1),
                                "bbox_aspect":  round(feat["bbox_aspect"],  2)},
                         boxes=[(x1, y1, x2, y2, f"ID {tid} FALL", (0, 0, 255))],
                     )
 
+        def _flush_batch() -> None:
+            nonlocal batch
+            if not batch:
+                return
+            frames = [f for _, f in batch]
+            pose_res = pose_model.track(
+                frames, persist=True, tracker="bytetrack.yaml",
+                classes=[0], conf=person_conf, imgsz=infer_imgsz,
+                device=device, half=half, verbose=False,
+            )
+            for (fidx, _), r in zip(batch, pose_res):
+                _process_one(fidx, r)
+            batch = []
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            self._observe(frame, frame_idx, job_id)
+
+            if frame_idx % frame_stride == 0:
+                batch.append((frame_idx, frame))
+                if len(batch) >= _BATCH_SIZE:
+                    _flush_batch()
+
             frame_idx += 1
+
+        _flush_batch()
 
         cap.release()
         self._finalize()

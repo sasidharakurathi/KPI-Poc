@@ -1,31 +1,4 @@
-"""Worker 2 — runs the KPI pipeline on recorded clips as they arrive.
 
-Clips are handed off one at a time by stream_recorder's per-camera capture
-threads. Processed strictly sequentially (one clip at a time, regardless of
-how many cameras are recording in parallel) since every KPI shares the same
-GPU — this keeps VRAM usage bounded rather than growing with camera count.
-
-Mirrors the exact job-creation and KPI-resolution logic the manual
-/api/videos/upload endpoint uses for a camera_id, so a recorded clip is
-processed with precisely the KPIs configured for that camera. Each clip is
-deleted after processing (success or failure) — its alerts already have
-their own saved frames in storage/alerts, so the raw clip has no further use.
-
-Also feeds the adaptive_controller: the total wall-clock time to run every
-KPI on a clip (combined, not per-KPI) is measured here and reported against
-that clip's actual duration, closing the feedback loop that lets each
-camera's KPIs automatically thin out their own frame sampling under load
-(see app/adaptive_controller.py and BaseKPI._should_process_frame).
-
-Reliability note: one slow or failing clip must never take down the ones
-behind it. run_pipeline() already swallows every exception per-KPI and never
-raises to its caller, so a KPI bug can't stall the queue. But _process() also
-does DB/setup work (job creation, camera lookup) *before* reaching
-run_pipeline's own try/except — a transient failure there (DB hiccup, disk
-error) is still wrapped by _run()'s own try/except below, so it's logged and
-the worker moves on to the next queued clip instead of dying silently and
-leaving every clip behind it stuck in the queue forever.
-"""
 import logging
 import os
 import queue
@@ -77,9 +50,7 @@ class ClipProcessor:
         if depth >= _BACKLOG_WARNING_THRESHOLD:
             logger.warning(
                 f"[clip-processor] {depth} clip(s) now waiting to be processed — "
-                f"falling behind the live recording rate. The adaptive controller "
-                f"will widen frame skipping on affected cameras, but a persistently "
-                f"growing backlog means alerts are arriving later than real time."
+                f"falling behind the live recording rate."
             )
 
     def _run(self) -> None:
@@ -108,7 +79,6 @@ class ClipProcessor:
 
     def _process(self, job: _ClipJob) -> None:
         from . import db
-        from .adaptive_controller import adaptive_controller
         from .config_loader import resolve_kpi_names
         from .job_manager import job_manager
         from .kpis import list_registered_names
@@ -139,7 +109,12 @@ class ClipProcessor:
             logger.exception(f"[clip-processor] pipeline failed for {job.clip_path}")
         finally:
             wall_time = time.perf_counter() - t0
-            adaptive_controller.record_clip_result(job.camera_id, job.duration_sec, wall_time)
+            utilization = wall_time / job.duration_sec if job.duration_sec > 0 else 0.0
+            logger.info(
+                f"[clip-processor] {Path(job.clip_path).name} (camera {job.camera_id}) "
+                f"— all {len(kpis_running)} KPI(s) done in {wall_time:.2f}s "
+                f"(clip duration {job.duration_sec:.1f}s, {utilization:.2f}x real-time)"
+            )
             try:
                 os.remove(job.clip_path)
             except OSError as exc:

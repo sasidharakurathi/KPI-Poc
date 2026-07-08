@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 
 from ... import model_registry
 from ..base import BaseKPI, KPIResult
@@ -9,6 +10,8 @@ _DEFAULT_CONF           = 0.35
 _DEFAULT_MIN_BOX_AREA   = 800
 _DEFAULT_MAX_PILLAR_R   = 4.0
 _DEFAULT_MIN_PERSON_R   = 0.6
+
+_BATCH_SIZE = 8
 
 
 @register_kpi
@@ -25,7 +28,7 @@ class PeopleCountKPI(BaseKPI):
         min_box_area     = self._get("min_box_area",     _DEFAULT_MIN_BOX_AREA)
         max_pillar_ratio = self._get("max_pillar_ratio", _DEFAULT_MAX_PILLAR_R)
         min_person_ratio = self._get("min_person_ratio", _DEFAULT_MIN_PERSON_R)
-        frame_stride     = self._get("frame_stride", 2)
+        frame_stride     = max(1, self._get("frame_stride", 2))
         min_confirm_frames = max(1, self._get("min_confirm_frames", 2))
         infer_imgsz      = self._get("infer_imgsz", 640)
 
@@ -39,28 +42,15 @@ class PeopleCountKPI(BaseKPI):
         unique_ids: set[int] = set()
         alert_events = 0
         frame_idx    = 0
+        batch: list[np.ndarray] = []
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            if not self._should_process_frame(frame, frame_idx, frame_stride):
-                frame_idx += 1
-                continue
-
-            results = model.track(
-                frame, persist=True, tracker="bytetrack.yaml",
-                conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False,
-            )
-            if not results:
-                frame_idx += 1
-                continue
-
-            boxes = results[0].boxes
+        def _process_result(results) -> None:
+            nonlocal alert_events
+            if results is None:
+                return
+            boxes = results.boxes
             if boxes is None or boxes.id is None:
-                frame_idx += 1
-                continue
+                return
 
             track_ids  = boxes.id.int().cpu().tolist()
             cls_ids    = boxes.cls.int().cpu().tolist()
@@ -89,7 +79,32 @@ class PeopleCountKPI(BaseKPI):
                 unique_ids.add(tid)
                 alert_events += 1
 
+        def _flush_batch() -> None:
+            nonlocal batch
+            if not batch:
+                return
+            results_list = model.track(
+                batch, persist=True, tracker="bytetrack.yaml",
+                conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False,
+            )
+            if results_list:
+                for r in results_list:
+                    _process_result(r)
+            batch = []
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx % frame_stride == 0:
+                batch.append(frame)
+                if len(batch) >= _BATCH_SIZE:
+                    _flush_batch()
+
             frame_idx += 1
+
+        _flush_batch()
 
         cap.release()
 

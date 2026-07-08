@@ -1,6 +1,7 @@
 import re
 import cv2
 import easyocr
+import numpy as np
 
 from ... import model_registry
 from ..base import BaseKPI, KPIResult
@@ -8,6 +9,8 @@ from ..registry import register_kpi
 from ...config import settings
 
 _ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+_BATCH_SIZE = 8
 
 _ocr_reader: easyocr.Reader | None = None
 
@@ -45,7 +48,7 @@ class AnprLprKPI(BaseKPI):
         aspect_min  = self._get("aspect_ratio_min",  0.5)
         aspect_max  = self._get("aspect_ratio_max",  7.0)
         min_chars   = self._get("min_plate_chars",   4)
-        frame_skip  = self._get("frame_skip", 2)
+        frame_skip  = max(1, self._get("frame_skip", 2))
         infer_imgsz = self._get("infer_imgsz",       640)
 
         model  = model_registry.get_model(model_path)
@@ -56,27 +59,15 @@ class AnprLprKPI(BaseKPI):
         seen_plates: set[str]       = set()
         alert_events = 0
         frame_idx    = 0
+        batch: list[tuple[int, np.ndarray]] = []
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+        def _process_one(fidx: int, frame: np.ndarray, results) -> None:
+            nonlocal alert_events
 
-            self._observe(frame, frame_idx, job_id)
+            if not results or results.boxes is None:
+                return
 
-            if not self._should_process_frame(frame, frame_idx, frame_skip):
-                frame_idx += 1
-                continue
-
-            results = model.track(
-                frame, persist=True, tracker="bytetrack.yaml",
-                conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False,
-            )
-            if not results or results[0].boxes is None:
-                frame_idx += 1
-                continue
-
-            boxes     = results[0].boxes
+            boxes     = results.boxes
             track_ids = boxes.id.int().cpu().tolist() if boxes.id is not None else []
             xyxy_list = boxes.xyxy.int().cpu().tolist()
             confs     = boxes.conf.cpu().tolist()
@@ -103,13 +94,41 @@ class AnprLprKPI(BaseKPI):
                 seen_plates.add(plate_text)
                 alert_events += 1
                 self._save_alert(
-                    "license_plate_detected", job_id, frame_idx,
+                    "license_plate_detected", job_id, fidx,
                     confidence=confs[i],
                     extra={"plate_text": plate_text, "track_id": int(tid)},
                     boxes=[(x1, y1, x2, y2, f"Plate {tid} {confs[i]:.2f}", (0, 255, 0))],
                 )
 
+        def _flush_batch() -> None:
+            nonlocal batch
+            if not batch:
+                return
+            frames = [f for _, f in batch]
+            results_list = model.track(
+                frames, persist=True, tracker="bytetrack.yaml",
+                conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False,
+            )
+            if results_list:
+                for (fidx, frame), r in zip(batch, results_list):
+                    _process_one(fidx, frame, r)
+            batch = []
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            self._observe(frame, frame_idx, job_id)
+
+            if frame_idx % frame_skip == 0:
+                batch.append((frame_idx, frame))
+                if len(batch) >= _BATCH_SIZE:
+                    _flush_batch()
+
             frame_idx += 1
+
+        _flush_batch()
 
         cap.release()
         self._finalize()

@@ -18,6 +18,8 @@ from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
 
+_BATCH_SIZE = 8
+
 
 @register_kpi
 class SmokingKPI(BaseKPI):
@@ -37,7 +39,7 @@ class SmokingKPI(BaseKPI):
         upper_frac        = self._get("upper_body_fraction", 0.60)
         cig_imgsz         = self._get("cigarette_imgsz",     320)
         person_imgsz      = self._get("person_imgsz",        640)
-        frame_stride      = self._get("frame_stride", 3)
+        frame_stride      = max(1, self._get("frame_stride", 3))
 
         cig_model    = model_registry.get_model(cig_model_path)
         tracker      = sv.ByteTrack()
@@ -51,22 +53,12 @@ class SmokingKPI(BaseKPI):
         alarmed_ids:   set[int]       = set()
         alert_events = 0
         frame_idx    = 0
+        batch: list[tuple[int, np.ndarray]] = []
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+        def _process_one(fidx: int, frame: np.ndarray, raw_boxes: list) -> None:
+            nonlocal alert_events
 
-            self._observe(frame, frame_idx, job_id)
-
-            if not self._should_process_frame(frame, frame_idx, frame_stride):
-                frame_idx += 1
-                continue
-
-            # ── Stage 1: detect + track persons
-            raw_boxes = self.shared_cache.predict_boxes(
-                person_model_path, frame_idx, frame, person_imgsz, device, half
-            )
+            # ── Stage 1: track persons from this frame's (batched) raw boxes
             person_rows = [
                 (x1, y1, x2, y2, conf) for x1, y1, x2, y2, cls_id, conf in raw_boxes
                 if cls_id == 0 and conf >= person_conf
@@ -82,10 +74,9 @@ class SmokingKPI(BaseKPI):
                 sv_dets = sv.Detections.empty()
 
             if len(sv_dets) == 0 or sv_dets.tracker_id is None:
-                frame_idx += 1
-                continue
+                return
 
-            # ── Stage 2: collect upper-body crops (batched) ───────────────────
+            # ── Stage 2: collect upper-body crops (batched per frame) ─────────
             crops:        list[np.ndarray] = []
             crop_to_idx:  list[int]        = []
 
@@ -130,13 +121,38 @@ class SmokingKPI(BaseKPI):
                     alert_events += 1
                     x1, y1, x2, y2 = map(int, bbox)
                     self._save_alert(
-                        "smoking_alarm", job_id, frame_idx,
+                        "smoking_alarm", job_id, fidx,
                         confidence=round(cig_conf_val.get(pidx, cig_conf), 3),
                         extra={"tracker_id": tid, "counter": track_history[tid]},
                         boxes=[(x1, y1, x2, y2, f"#{tid} SMOKING", (0, 255, 255))],
                     )
 
+        def _flush_batch() -> None:
+            nonlocal batch
+            if not batch:
+                return
+            boxes_by_frame = self.shared_cache.predict_boxes_batch(
+                person_model_path, batch, person_imgsz, device, half
+            )
+            for fidx, frame in batch:
+                _process_one(fidx, frame, boxes_by_frame.get(fidx, []))
+            batch = []
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            self._observe(frame, frame_idx, job_id)
+
+            if frame_idx % frame_stride == 0:
+                batch.append((frame_idx, frame))
+                if len(batch) >= _BATCH_SIZE:
+                    _flush_batch()
+
             frame_idx += 1
+
+        _flush_batch()   # any leftover partial batch at end of video
 
         cap.release()
         self._finalize()

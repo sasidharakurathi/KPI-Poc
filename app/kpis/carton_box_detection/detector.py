@@ -1,10 +1,13 @@
 import cv2
+import numpy as np
 import supervision as sv
 
 from ... import model_registry
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
+
+_BATCH_SIZE = 8
 
 
 @register_kpi
@@ -18,7 +21,7 @@ class BoxCounterKPI(BaseKPI):
 
         model_path         = self._get("model_path",  "app/models/carton-box-detection.pt")
         conf                = self._get("confidence",  0.75)
-        frame_stride        = self._get("frame_stride", 2)
+        frame_stride        = max(1, self._get("frame_stride", 2))
         min_confirm_frames  = max(1, self._get("min_confirm_frames", 2))
         infer_imgsz         = self._get("infer_imgsz", 640)
 
@@ -30,25 +33,16 @@ class BoxCounterKPI(BaseKPI):
         confirmed_ids: set[int]       = set()
         alert_events = 0
         frame_idx    = 0
+        batch: list[np.ndarray] = []
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            if not self._should_process_frame(frame, frame_idx, frame_stride):
-                frame_idx += 1
-                continue
-
-            results = model(frame, conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False)
-            r = results[0]
+        def _process_result(r) -> None:
+            nonlocal alert_events
             sv_dets = sv.Detections.from_ultralytics(r)
             if len(sv_dets) > 0:
                 sv_dets = tracker.update_with_detections(sv_dets)
 
             if len(sv_dets) == 0 or sv_dets.tracker_id is None:
-                frame_idx += 1
-                continue
+                return
 
             for i in range(len(sv_dets)):
                 tid = int(sv_dets.tracker_id[i])
@@ -61,7 +55,28 @@ class BoxCounterKPI(BaseKPI):
                 confirmed_ids.add(tid)
                 alert_events += 1
 
+        def _flush_batch() -> None:
+            nonlocal batch
+            if not batch:
+                return
+            results_list = model(batch, conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False)
+            for r in results_list:
+                _process_result(r)
+            batch = []
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx % frame_stride == 0:
+                batch.append(frame)
+                if len(batch) >= _BATCH_SIZE:
+                    _flush_batch()
+
             frame_idx += 1
+
+        _flush_batch()
 
         cap.release()
 

@@ -6,12 +6,14 @@ from collections import defaultdict
 from ... import model_registry
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
-from ..pose_utils import _DEFAULT_POSE_MODEL_PATH, load_pose_model, run_pose, human_confirmed_in_box
+from ..pose_utils import _DEFAULT_POSE_MODEL_PATH, load_pose_model, human_confirmed_in_box
 from ...config import settings
 
 PERSON_CLS = "person"
 HELMET_CLS = "helmet"
 VEST_CLS   = "vest"
+
+_BATCH_SIZE = 8
 
 
 def _box_xyxy(box):
@@ -57,7 +59,7 @@ class PPEKPI(BaseKPI):
         overlap_thr     = self._get("overlap_threshold",  0.30)
         alarm_secs      = self._get("alarm_seconds",      2.0)
         alert_hold_secs = self._get("alert_hold_seconds", 4.0)
-        frame_stride    = self._get("frame_stride", 2)
+        frame_stride    = max(1, self._get("frame_stride", 2))
         infer_imgsz     = self._get("infer_imgsz",         640)
 
         model      = model_registry.get_model(model_path)
@@ -74,41 +76,13 @@ class PPEKPI(BaseKPI):
         compliant = no_helmet = no_vest = no_ppe = 0
         alert_events = 0
         frame_idx = 0
+        batch: list[tuple[int, np.ndarray]] = []
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            self._observe(frame, frame_idx, job_id)
-
-            if not self._should_process_frame(frame, frame_idx, frame_stride):
-                frame_idx += 1
-                continue
-
-            results = model.predict(frame, conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False)
-            r = results[0]
-            sv_dets = sv.Detections.from_ultralytics(r)
-            names   = r.names
-
-            person_cls_id = next((k for k, v in names.items() if v == PERSON_CLS), None)
-            helmet_cls_id = next((k for k, v in names.items() if v == HELMET_CLS), None)
-            vest_cls_id   = next((k for k, v in names.items() if v == VEST_CLS), None)
-
-            helmets = []
-            vests   = []
-            if len(sv_dets) > 0:
-                if helmet_cls_id is not None:
-                    helmets = [_box_xyxy(b) for b in sv_dets[sv_dets.class_id == helmet_cls_id].xyxy]
-                if vest_cls_id is not None:
-                    vests   = [_box_xyxy(b) for b in sv_dets[sv_dets.class_id == vest_cls_id].xyxy]
-
-            persons_sv = sv_dets[sv_dets.class_id == person_cls_id] \
-                if person_cls_id is not None and len(sv_dets) > 0 else sv.Detections.empty()
+        def _process_one(fidx: int, frame: np.ndarray, helmets, vests, persons_sv, person_cls_id, pose_results) -> None:
+            nonlocal compliant, no_helmet, no_vest, no_ppe, alert_events
 
             valid_xyxy, valid_conf, valid_cls = [], [], []
-            if len(persons_sv) > 0:
-                pose_results = run_pose(pose_model, frame, imgsz=infer_imgsz)
+            if len(persons_sv) > 0 and pose_results is not None:
                 for i in range(len(persons_sv)):
                     pbox = _box_xyxy(persons_sv.xyxy[i])
                     pconf = float(persons_sv.confidence[i]) if persons_sv.confidence is not None else conf
@@ -118,8 +92,7 @@ class PPEKPI(BaseKPI):
                         valid_cls.append(person_cls_id)
 
             if not valid_xyxy:
-                frame_idx += 1
-                continue
+                return
 
             valid_sv = sv.Detections(
                 xyxy=np.array(valid_xyxy, dtype=np.float32),
@@ -151,13 +124,78 @@ class PPEKPI(BaseKPI):
                         alarmed_ids.add(tracker_id)
                         alert_events += 1
                         self._save_alert(
-                            "ppe_non_compliance", job_id, frame_idx,
+                            "ppe_non_compliance", job_id, fidx,
                             confidence=round(pconf, 3),
                             extra={"tracker_id": tracker_id, "status": status},
                             boxes=[(x1, y1, x2, y2, f"#{tracker_id} {status}", color)],
                         )
 
+        def _flush_batch() -> None:
+            nonlocal batch
+            if not batch:
+                return
+            frames = [f for _, f in batch]
+            results_list = model.predict(frames, conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False)
+
+            # Stage 1 (per frame): parse detections, decide which frames need
+            # stage 2 (pose confirmation) — only frames with a person candidate.
+            stage1 = []   # (fidx, frame, helmets, vests, persons_sv, person_cls_id)
+            pose_batch_frames = []
+            pose_batch_slots  = []   # index into stage1 needing a pose result
+            for (fidx, frame), r in zip(batch, results_list):
+                sv_dets = sv.Detections.from_ultralytics(r)
+                names   = r.names
+
+                person_cls_id = next((k for k, v in names.items() if v == PERSON_CLS), None)
+                helmet_cls_id = next((k for k, v in names.items() if v == HELMET_CLS), None)
+                vest_cls_id   = next((k for k, v in names.items() if v == VEST_CLS), None)
+
+                helmets = []
+                vests   = []
+                if len(sv_dets) > 0:
+                    if helmet_cls_id is not None:
+                        helmets = [_box_xyxy(b) for b in sv_dets[sv_dets.class_id == helmet_cls_id].xyxy]
+                    if vest_cls_id is not None:
+                        vests   = [_box_xyxy(b) for b in sv_dets[sv_dets.class_id == vest_cls_id].xyxy]
+
+                persons_sv = sv_dets[sv_dets.class_id == person_cls_id] \
+                    if person_cls_id is not None and len(sv_dets) > 0 else sv.Detections.empty()
+
+                slot = len(stage1)
+                stage1.append((fidx, frame, helmets, vests, persons_sv, person_cls_id))
+                if len(persons_sv) > 0:
+                    pose_batch_frames.append(frame)
+                    pose_batch_slots.append(slot)
+
+            # Stage 2 (batched): pose confirmation only for frames that need it.
+            pose_by_slot: dict[int, list] = {}
+            if pose_batch_frames:
+                pose_results_list = pose_model.predict(
+                    pose_batch_frames, imgsz=infer_imgsz, device=device, half=half, verbose=False,
+                )
+                for slot, pres in zip(pose_batch_slots, pose_results_list):
+                    pose_by_slot[slot] = [pres]   # human_confirmed_in_box expects a list of Results
+
+            for slot, (fidx, frame, helmets, vests, persons_sv, person_cls_id) in enumerate(stage1):
+                _process_one(fidx, frame, helmets, vests, persons_sv, person_cls_id, pose_by_slot.get(slot))
+
+            batch = []
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            self._observe(frame, frame_idx, job_id)
+
+            if frame_idx % frame_stride == 0:
+                batch.append((frame_idx, frame))
+                if len(batch) >= _BATCH_SIZE:
+                    _flush_batch()
+
             frame_idx += 1
+
+        _flush_batch()   # any leftover partial batch at end of video
 
         cap.release()
         self._finalize()
