@@ -12,7 +12,7 @@ from ...config import settings
 # Shoulder, hip, knee, ankle groups — at least one side must be visible per group
 _FULL_BODY_GROUPS = [(L_SH, R_SH), (L_HIP, R_HIP), (L_KN, R_KN), (L_AN, R_AN)]
 
-_BATCH_SIZE = 8
+_BATCH_SIZE = 4
 
 
 def _full_body_visible(kconf: np.ndarray, thr: float) -> bool:

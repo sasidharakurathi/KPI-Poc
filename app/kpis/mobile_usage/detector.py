@@ -10,7 +10,7 @@ from ..pose_features import PoseFeatures
 from ..event_bus import EventBus
 from ...config import settings
 
-_BATCH_SIZE = 8
+_BATCH_SIZE = 4
 
 
 def _iou_frac(box_a, box_b) -> float:

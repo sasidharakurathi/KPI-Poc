@@ -13,7 +13,7 @@ PERSON_CLS = "person"
 HELMET_CLS = "helmet"
 VEST_CLS   = "vest"
 
-_BATCH_SIZE = 8
+_BATCH_SIZE = 4
 
 
 def _box_xyxy(box):

@@ -10,7 +10,7 @@ from ...config import settings
 
 _ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-_BATCH_SIZE = 8
+_BATCH_SIZE = 4
 
 _ocr_reader: easyocr.Reader | None = None
 

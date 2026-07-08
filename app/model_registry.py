@@ -27,7 +27,7 @@ _WARMUP_SPECS: dict[str, tuple[int, bool]] = {
 }
 
 # Matches each detector's _BATCH_SIZE, so the TensorRT batch profile is bound at startup, not mid-job.
-_WARMUP_BATCH = 8
+_WARMUP_BATCH = 4
 
 # Matches split-job KPI concurrency, so each worker thread's first CUDA call is paid at startup too.
 _WARMUP_THREADS = 6

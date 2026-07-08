@@ -8,15 +8,15 @@ from ultralytics import YOLO
 
 
 JOBS: list[tuple[str, int, bool, int]] = [
-    ("app/models/ppe.pt", 512, True, 8),
-    ("app/models/yolo26s-pose.pt", 512, True, 8),        # PPEKPI's pose model
-    ("app/models/fire-smoke.pt", 512, True, 8),          # batched: FireSmokeKPI runs 8 frames per call
-    ("app/models/yolo26m.pt", 512, True, 8),             # mobile_usage phone + smoking person
-    ("app/models/cigarette.pt", 320, True, 32),          # batch dimension is crops-per-frame, not frames
-    ("app/models/ppl-count-yolo26m.pt", 640, True, 8),
-    ("app/models/yolo26m-pose.pt", 640, True, 8),        # dynamic HxW (512/640 shared) + dynamic batch
-    ("app/models/anpr_lpr.pt", 640, True, 8),            # currently disabled, kept in sync in case re-enabled
-    ("app/models/carton-box-detection.pt", 640, True, 8),  # currently disabled, kept in sync in case re-enabled
+    ("app/models/ppe.pt", 512, True, 4),
+    ("app/models/yolo26s-pose.pt", 512, True, 4),        # PPEKPI's pose model
+    ("app/models/fire-smoke.pt", 512, True, 4),          # batched: FireSmokeKPI runs 4 frames per call
+    ("app/models/yolo26m.pt", 512, True, 4),             # mobile_usage phone + smoking person
+    ("app/models/cigarette.pt", 320, True, 16),          # batch dimension is crops-per-frame, not frames
+    ("app/models/ppl-count-yolo26m.pt", 640, True, 4),
+    ("app/models/yolo26m-pose.pt", 640, True, 4),        # dynamic HxW (512/640 shared) + dynamic batch
+    ("app/models/anpr_lpr.pt", 640, True, 4),            # currently disabled, kept in sync in case re-enabled
+    ("app/models/carton-box-detection.pt", 640, True, 4),  # currently disabled, kept in sync in case re-enabled
 ]
 
 

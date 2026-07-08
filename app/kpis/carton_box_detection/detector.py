@@ -7,7 +7,7 @@ from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
 
-_BATCH_SIZE = 8
+_BATCH_SIZE = 4
 
 
 @register_kpi
