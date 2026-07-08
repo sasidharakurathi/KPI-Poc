@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import uuid
 from contextlib import asynccontextmanager
@@ -29,6 +30,7 @@ from .job_manager import job_manager
 from .kpis import get_registered_kpis, get_registry, list_registered_names
 from .pipeline import run_pipeline
 from .stream_recorder import stream_recorder_manager
+from .video_thinning import thin_video
 from .schemas import (
     CameraCreate,
     CameraInfo,
@@ -54,9 +56,29 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _thin_then_run_pipeline(
+    job_id: str, src_path: str, thinned_path: str, kpi_names: Optional[list[str]]
+) -> None:
+    """Thin a temp copy of the upload, run the pipeline against it, then discard it. Original upload is untouched."""
+    try:
+        thin_video(src_path, thinned_path)
+    except Exception as exc:
+        # run_pipeline() never runs, so mark FAILED here or the job sits in PENDING forever.
+        logger.error(f"[upload] job {job_id}: frame-thinning failed: {exc}", exc_info=True)
+        job_manager.update(job_id, JobStatus.FAILED, error=f"frame-thinning failed: {exc}")
+        return
+
+    try:
+        run_pipeline(job_id, thinned_path, kpi_names)
+    finally:
+        try:
+            os.remove(thinned_path)
+        except OSError as exc:
+            logger.warning(f"[upload] failed to delete thinned temp file {thinned_path}: {exc}")
+
+
 def _enabled_model_paths() -> set[str]:
-    """Every distinct *model_path config value across KPIs that are
-    currently enabled — used to preload exactly what will actually run."""
+    """Every distinct *model_path config value across currently-enabled KPIs."""
     paths: set[str] = set()
     for cls in get_registry().values():
         if not get_kpi_param(cls.__name__, "enabled", True):
@@ -510,7 +532,10 @@ async def upload_video(
         camera_name=camera_name,
         kpis_running=kpis_running,
     )
-    background_tasks.add_task(run_pipeline, job_id, str(upload_path), kpi_names_to_run)
+    thinned_path = upload_path.with_name(f"{upload_path.stem}_thinned{upload_path.suffix}")
+    background_tasks.add_task(
+        _thin_then_run_pipeline, job_id, str(upload_path), str(thinned_path), kpi_names_to_run
+    )
 
     return UploadResponse(
         job_id=job_id,

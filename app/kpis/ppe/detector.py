@@ -48,165 +48,156 @@ class PPEKPI(BaseKPI):
     name = "ppe"
     display_name = "PPE Compliance"
 
-    def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
-        device = settings.DEVICE
-        half   = settings.USE_HALF and device != "cpu"
+    def setup(self, video_path: str, job_id: str = "") -> None:
+        self._job_id = job_id
+        self.device = settings.DEVICE
+        self.half   = settings.USE_HALF and self.device != "cpu"
 
-        model_path      = self._get("model_path",         "app/models/ppe.pt")
-        pose_model_path = self._get("pose_model_path",    _DEFAULT_POSE_MODEL_PATH)
-        conf            = self._get("confidence",         0.25)
-        margin          = self._get("margin",             0.15)
-        overlap_thr     = self._get("overlap_threshold",  0.30)
-        alarm_secs      = self._get("alarm_seconds",      2.0)
-        alert_hold_secs = self._get("alert_hold_seconds", 4.0)
-        frame_stride    = max(1, self._get("frame_stride", 2))
-        infer_imgsz     = self._get("infer_imgsz",         640)
+        self.model_path      = self._get("model_path",         "app/models/ppe.pt")
+        self.pose_model_path = self._get("pose_model_path",    _DEFAULT_POSE_MODEL_PATH)
+        self.conf            = self._get("confidence",         0.25)
+        self.margin          = self._get("margin",             0.15)
+        self.overlap_thr     = self._get("overlap_threshold",  0.30)
+        alarm_secs           = self._get("alarm_seconds",      2.0)
+        self.alert_hold_secs = self._get("alert_hold_seconds", 4.0)
+        self.frame_stride    = max(1, self._get("frame_stride", 2))
+        self.infer_imgsz     = self._get("infer_imgsz",         640)
 
-        model      = model_registry.get_model(model_path)
-        pose_model = load_pose_model(pose_model_path)
-        tracker    = sv.ByteTrack()
+        self.model      = model_registry.get_model(self.model_path)
+        self.pose_model = load_pose_model(self.pose_model_path)
+        self.tracker    = sv.ByteTrack()
 
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        alarm_frames = int(alarm_secs * fps)
-
-        track_noncompliant: dict[int, int] = defaultdict(int)
-        alarmed_ids: set[int] = set()
-
-        compliant = no_helmet = no_vest = no_ppe = 0
-        alert_events = 0
-        frame_idx = 0
-        batch: list[tuple[int, np.ndarray]] = []
-
-        def _process_one(fidx: int, frame: np.ndarray, helmets, vests, persons_sv, person_cls_id, pose_results) -> None:
-            nonlocal compliant, no_helmet, no_vest, no_ppe, alert_events
-
-            valid_xyxy, valid_conf, valid_cls = [], [], []
-            if len(persons_sv) > 0 and pose_results is not None:
-                for i in range(len(persons_sv)):
-                    pbox = _box_xyxy(persons_sv.xyxy[i])
-                    pconf = float(persons_sv.confidence[i]) if persons_sv.confidence is not None else conf
-                    if human_confirmed_in_box(pose_results, int(pbox[0]), int(pbox[1]), int(pbox[2]), int(pbox[3])):
-                        valid_xyxy.append(persons_sv.xyxy[i])
-                        valid_conf.append(pconf)
-                        valid_cls.append(person_cls_id)
-
-            if not valid_xyxy:
-                return
-
-            valid_sv = sv.Detections(
-                xyxy=np.array(valid_xyxy, dtype=np.float32),
-                confidence=np.array(valid_conf, dtype=np.float32),
-                class_id=np.array(valid_cls, dtype=np.int32),
-            )
-            tracked = tracker.update_with_detections(valid_sv)
-
-            for i in range(len(tracked)):
-                pbox = _box_xyxy(tracked.xyxy[i])
-                pconf = float(tracked.confidence[i]) if tracked.confidence is not None else conf
-                tracker_id = int(tracked.tracker_id[i]) if tracked.tracker_id is not None else None
-
-                status, color = _raw_status(pbox, helmets, vests, margin, overlap_thr)
-                x1, y1, x2, y2 = map(int, pbox)
-
-                if status == "COMPLIANT":   compliant  += 1
-                elif status == "NO HELMET": no_helmet  += 1
-                elif status == "NO VEST":   no_vest    += 1
-                else:                       no_ppe     += 1
-
-                if tracker_id is not None:
-                    if status != "COMPLIANT":
-                        track_noncompliant[tracker_id] += 1
-                    else:
-                        track_noncompliant[tracker_id] = max(0, track_noncompliant[tracker_id] - 1)
-
-                    if track_noncompliant[tracker_id] >= alarm_frames and tracker_id not in alarmed_ids:
-                        alarmed_ids.add(tracker_id)
-                        alert_events += 1
-                        self._save_alert(
-                            "ppe_non_compliance", job_id, fidx,
-                            confidence=round(pconf, 3),
-                            extra={"tracker_id": tracker_id, "status": status},
-                            boxes=[(x1, y1, x2, y2, f"#{tracker_id} {status}", color)],
-                        )
-
-        def _flush_batch() -> None:
-            nonlocal batch
-            if not batch:
-                return
-            frames = [f for _, f in batch]
-            results_list = model.predict(frames, conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False)
-
-            # Stage 1 (per frame): parse detections, decide which frames need
-            # stage 2 (pose confirmation) — only frames with a person candidate.
-            stage1 = []   # (fidx, frame, helmets, vests, persons_sv, person_cls_id)
-            pose_batch_frames = []
-            pose_batch_slots  = []   # index into stage1 needing a pose result
-            for (fidx, frame), r in zip(batch, results_list):
-                sv_dets = sv.Detections.from_ultralytics(r)
-                names   = r.names
-
-                person_cls_id = next((k for k, v in names.items() if v == PERSON_CLS), None)
-                helmet_cls_id = next((k for k, v in names.items() if v == HELMET_CLS), None)
-                vest_cls_id   = next((k for k, v in names.items() if v == VEST_CLS), None)
-
-                helmets = []
-                vests   = []
-                if len(sv_dets) > 0:
-                    if helmet_cls_id is not None:
-                        helmets = [_box_xyxy(b) for b in sv_dets[sv_dets.class_id == helmet_cls_id].xyxy]
-                    if vest_cls_id is not None:
-                        vests   = [_box_xyxy(b) for b in sv_dets[sv_dets.class_id == vest_cls_id].xyxy]
-
-                persons_sv = sv_dets[sv_dets.class_id == person_cls_id] \
-                    if person_cls_id is not None and len(sv_dets) > 0 else sv.Detections.empty()
-
-                slot = len(stage1)
-                stage1.append((fidx, frame, helmets, vests, persons_sv, person_cls_id))
-                if len(persons_sv) > 0:
-                    pose_batch_frames.append(frame)
-                    pose_batch_slots.append(slot)
-
-            # Stage 2 (batched): pose confirmation only for frames that need it.
-            pose_by_slot: dict[int, list] = {}
-            if pose_batch_frames:
-                pose_results_list = pose_model.predict(
-                    pose_batch_frames, imgsz=infer_imgsz, device=device, half=half, verbose=False,
-                )
-                for slot, pres in zip(pose_batch_slots, pose_results_list):
-                    pose_by_slot[slot] = [pres]   # human_confirmed_in_box expects a list of Results
-
-            for slot, (fidx, frame, helmets, vests, persons_sv, person_cls_id) in enumerate(stage1):
-                _process_one(fidx, frame, helmets, vests, persons_sv, person_cls_id, pose_by_slot.get(slot))
-
-            batch = []
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            self._observe(frame, frame_idx, job_id)
-
-            if frame_idx % frame_stride == 0:
-                batch.append((frame_idx, frame))
-                if len(batch) >= _BATCH_SIZE:
-                    _flush_batch()
-
-            frame_idx += 1
-
-        _flush_batch()   # any leftover partial batch at end of video
-
         cap.release()
+        self.alarm_frames = int(alarm_secs * fps)
+
+        self.track_noncompliant: dict[int, int] = defaultdict(int)
+        self.alarmed_ids: set[int] = set()
+
+        self.compliant = self.no_helmet = self.no_vest = self.no_ppe = 0
+        self.alert_events = 0
+        self._frames_seen = 0
+        self.batch: list[tuple[int, np.ndarray]] = []
+
+    def _process_one(self, fidx: int, frame: np.ndarray, helmets, vests, persons_sv, person_cls_id, pose_results) -> None:
+        valid_xyxy, valid_conf, valid_cls = [], [], []
+        if len(persons_sv) > 0 and pose_results is not None:
+            for i in range(len(persons_sv)):
+                pbox = _box_xyxy(persons_sv.xyxy[i])
+                pconf = float(persons_sv.confidence[i]) if persons_sv.confidence is not None else self.conf
+                if human_confirmed_in_box(pose_results, int(pbox[0]), int(pbox[1]), int(pbox[2]), int(pbox[3])):
+                    valid_xyxy.append(persons_sv.xyxy[i])
+                    valid_conf.append(pconf)
+                    valid_cls.append(person_cls_id)
+
+        if not valid_xyxy:
+            return
+
+        valid_sv = sv.Detections(
+            xyxy=np.array(valid_xyxy, dtype=np.float32),
+            confidence=np.array(valid_conf, dtype=np.float32),
+            class_id=np.array(valid_cls, dtype=np.int32),
+        )
+        tracked = self.tracker.update_with_detections(valid_sv)
+
+        for i in range(len(tracked)):
+            pbox = _box_xyxy(tracked.xyxy[i])
+            pconf = float(tracked.confidence[i]) if tracked.confidence is not None else self.conf
+            tracker_id = int(tracked.tracker_id[i]) if tracked.tracker_id is not None else None
+
+            status, color = _raw_status(pbox, helmets, vests, self.margin, self.overlap_thr)
+            x1, y1, x2, y2 = map(int, pbox)
+
+            if status == "COMPLIANT":   self.compliant  += 1
+            elif status == "NO HELMET": self.no_helmet  += 1
+            elif status == "NO VEST":   self.no_vest    += 1
+            else:                       self.no_ppe     += 1
+
+            if tracker_id is not None:
+                if status != "COMPLIANT":
+                    self.track_noncompliant[tracker_id] += 1
+                else:
+                    self.track_noncompliant[tracker_id] = max(0, self.track_noncompliant[tracker_id] - 1)
+
+                if self.track_noncompliant[tracker_id] >= self.alarm_frames and tracker_id not in self.alarmed_ids:
+                    self.alarmed_ids.add(tracker_id)
+                    self.alert_events += 1
+                    self._save_alert(
+                        "ppe_non_compliance", self._job_id, fidx,
+                        confidence=round(pconf, 3),
+                        extra={"tracker_id": tracker_id, "status": status},
+                        boxes=[(x1, y1, x2, y2, f"#{tracker_id} {status}", color)],
+                    )
+
+    def _flush_batch(self) -> None:
+        if not self.batch:
+            return
+        frames = [f for _, f in self.batch]
+        results_list = self.model.predict(frames, conf=self.conf, imgsz=self.infer_imgsz, device=self.device, half=self.half, verbose=False)
+
+        stage1 = []   # (fidx, frame, helmets, vests, persons_sv, person_cls_id)
+        pose_batch_frames = []
+        pose_batch_slots  = []   # index into stage1 needing a pose result
+        for (fidx, frame), r in zip(self.batch, results_list):
+            sv_dets = sv.Detections.from_ultralytics(r)
+            names   = r.names
+
+            person_cls_id = next((k for k, v in names.items() if v == PERSON_CLS), None)
+            helmet_cls_id = next((k for k, v in names.items() if v == HELMET_CLS), None)
+            vest_cls_id   = next((k for k, v in names.items() if v == VEST_CLS), None)
+
+            helmets = []
+            vests   = []
+            if len(sv_dets) > 0:
+                if helmet_cls_id is not None:
+                    helmets = [_box_xyxy(b) for b in sv_dets[sv_dets.class_id == helmet_cls_id].xyxy]
+                if vest_cls_id is not None:
+                    vests   = [_box_xyxy(b) for b in sv_dets[sv_dets.class_id == vest_cls_id].xyxy]
+
+            persons_sv = sv_dets[sv_dets.class_id == person_cls_id] \
+                if person_cls_id is not None and len(sv_dets) > 0 else sv.Detections.empty()
+
+            slot = len(stage1)
+            stage1.append((fidx, frame, helmets, vests, persons_sv, person_cls_id))
+            if len(persons_sv) > 0:
+                pose_batch_frames.append(frame)
+                pose_batch_slots.append(slot)
+
+        pose_by_slot: dict[int, list] = {}
+        if pose_batch_frames:
+            pose_results_list = self.pose_model.predict(
+                pose_batch_frames, imgsz=self.infer_imgsz, device=self.device, half=self.half, verbose=False,
+            )
+            for slot, pres in zip(pose_batch_slots, pose_results_list):
+                pose_by_slot[slot] = [pres]   # human_confirmed_in_box expects a list of Results
+
+        for slot, (fidx, frame, helmets, vests, persons_sv, person_cls_id) in enumerate(stage1):
+            self._process_one(fidx, frame, helmets, vests, persons_sv, person_cls_id, pose_by_slot.get(slot))
+
+        self.batch = []
+
+    def process_frame(self, frame_idx: int, frame: np.ndarray, job_id: str = "") -> None:
+        self._observe(frame, frame_idx, self._job_id)
+
+        if frame_idx % self.frame_stride == 0:
+            self.batch.append((frame_idx, frame))
+            if len(self.batch) >= _BATCH_SIZE:
+                self._flush_batch()
+
+        self._frames_seen = frame_idx + 1
+
+    def finalize(self) -> KPIResult:
+        self._flush_batch()
         self._finalize()
 
         return KPIResult(self.name, self.display_name, {
-            "alert_events":           alert_events,
-            "compliant_person_frames": compliant,
-            "no_helmet_person_frames": no_helmet,
-            "no_vest_person_frames":   no_vest,
-            "no_ppe_person_frames":    no_ppe,
-            "alarm_triggered":         len(alarmed_ids) > 0,
-            "total_frames":            frame_idx,
-            "device":                  device,
+            "alert_events":           self.alert_events,
+            "compliant_person_frames": self.compliant,
+            "no_helmet_person_frames": self.no_helmet,
+            "no_vest_person_frames":   self.no_vest,
+            "no_ppe_person_frames":    self.no_ppe,
+            "alarm_triggered":         len(self.alarmed_ids) > 0,
+            "total_frames":            self._frames_seen,
+            "device":                  self.device,
         })

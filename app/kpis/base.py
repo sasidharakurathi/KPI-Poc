@@ -1,6 +1,6 @@
 
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -55,19 +55,7 @@ class _PendingWindow:
 
 
 class BaseKPI(ABC):
-    """
-    Subclasses set:
-        name         - unique snake_case identifier
-        display_name - human-readable name
-
-    Inside process_video(), per frame:
-        self._observe(frame, frame_idx, job_id)   # every frame, before processing
-        self._save_alert(alert_type, job_id,      # on a detection
-                         frame_idx, confidence, extra, boxes)
-    After the loop:
-        self._finalize()
-        return KPIResult(self.name, self.display_name, summary)
-    """
+    """Subclasses set name/display_name and implement either the split contract (setup/process_frame/finalize, preferred -- shares one decode across KPIs) or override process_video() directly (standalone)."""
 
     name: str
     display_name: str
@@ -78,6 +66,8 @@ class BaseKPI(ABC):
         self._before: int = max(0, settings.ALERT_WINDOW_BEFORE)
         self._after: int  = max(0, settings.ALERT_WINDOW_AFTER)
         self._buf: deque  = deque(maxlen=self._before + 1)
+        # Per-frame "before" window snapshot -- batching delays _save_alert() past when _buf still held that frame.
+        self._before_snapshots: dict[int, list[tuple[int, np.ndarray]]] = {}
         self._pending: list[_PendingWindow] = []
         self._job_id: str = ""
         self.shared_cache = SharedInference()
@@ -104,6 +94,7 @@ class BaseKPI(ABC):
             self._pending = still
 
         self._buf.append((frame_idx, frame.copy()))
+        self._before_snapshots[frame_idx] = list(self._buf)
 
     def _save_alert(
         self,
@@ -119,7 +110,14 @@ class BaseKPI(ABC):
         In developer mode, also saves a labeled copy of the anchor frame."""
         if job_id:
             self._job_id = job_id
-        before_frames = list(self._buf)
+        before_frames = self._before_snapshots.pop(frame_idx, None)
+        if before_frames is None:
+            before_frames = list(self._buf)
+        # Calls arrive in non-decreasing frame_idx order, so older snapshots are now dead -- drop them.
+        stale = [fidx for fidx in self._before_snapshots if fidx < frame_idx]
+        for fidx in stale:
+            del self._before_snapshots[fidx]
+
         p = _PendingWindow(alert_type, frame_idx, confidence, extra,
                            before_frames, self._after, boxes)
         if self._after <= 0:
@@ -151,7 +149,6 @@ class BaseKPI(ABC):
 
         try:
             from ..notifications import notify_alert
-            # Find anchor frame and draw detection boxes on it for the email.
             anchor_img = next(
                 (img for fidx, img in p.frames if fidx == p.anchor),
                 p.frames[0][1] if p.frames else None,
@@ -160,9 +157,7 @@ class BaseKPI(ABC):
             if anchor_img is not None:
                 labeled = anchor_img.copy()
                 if p.boxes:
-                    # Draw only rectangles — no text labels — so no confidence
-                    # values bleed into the email regardless of what the KPI
-                    # put in the label string.
+                    # Rectangles only, no text -- keeps confidence values out of the email.
                     for b in p.boxes:
                         x1, y1, x2, y2 = int(b[0]), int(b[1]), int(b[2]), int(b[3])
                         color = b[5] if len(b) > 5 else (0, 0, 255)
@@ -207,7 +202,33 @@ class BaseKPI(ABC):
         except Exception:
             logger.exception("[%s] failed to persist alert frames", self.name)
 
-    @abstractmethod
+    # ── split contract (shared single-decode pipeline) ────────────────────────
+
+    def setup(self, video_path: str, job_id: str = "") -> None:
+        """One-time setup before process_frame() starts receiving frames. Split-contract subclasses override this."""
+        if job_id:
+            self._job_id = job_id
+
+    def process_frame(self, frame_idx: int, frame: np.ndarray, job_id: str = "") -> None:
+        """Handle one decoded frame, called in increasing frame_idx order after setup()."""
+        raise NotImplementedError(f"{self.name} has not implemented the split KPI contract")
+
+    def finalize(self) -> KPIResult:
+        """Flush pending state and return the final KPIResult."""
+        raise NotImplementedError(f"{self.name} has not implemented the split KPI contract")
+
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
-        """Run inference over the video. Call _observe() every frame,
-        _save_alert() on detections, _finalize() after the loop."""
+        """Standalone entry point: decodes the video itself, driving setup()/process_frame()/finalize()."""
+        self.setup(video_path, job_id)
+        cap = cv2.VideoCapture(video_path)
+        try:
+            frame_idx = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                self.process_frame(frame_idx, frame)
+                frame_idx += 1
+        finally:
+            cap.release()
+        return self.finalize()

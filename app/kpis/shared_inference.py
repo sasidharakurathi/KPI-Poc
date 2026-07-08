@@ -13,10 +13,7 @@ def _boxes_from_result(result) -> list[tuple[float, float, float, float, int, fl
 
 
 class SharedInference:
-    """Per-frame raw-detection cache on top of model_registry's preloaded,
-    process-wide model instances — this class avoids recomputing the same
-    (model, frame, imgsz) forward pass twice within a single job (e.g.
-    mobile_usage and smoking both requesting yolo26m.pt for the same frame)."""
+    """Per-frame raw-detection cache, so KPIs sharing a job don't recompute the same (model, frame, imgsz) forward pass twice."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()

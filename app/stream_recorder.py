@@ -1,15 +1,4 @@
-"""Worker 1 — continuous IP camera capture.
-
-For every camera with `recording_enabled=True` and a configured stream
-(camera_ip/username/password), a dedicated background thread connects to the
-RTSP feed and rolls the incoming frames into fixed-length clip files
-(STREAM_CLIP_SECONDS each, default 120s). Each finished clip is handed off to
-the clip_processor queue (Worker 2) for KPI processing.
-
-Runs independently of KPI processing so a slow/backed-up pipeline never
-causes frames to be dropped from the live capture, and a camera reconnect
-never blocks other cameras' recorders (one thread per camera).
-"""
+"""Worker 1 — continuous IP camera capture. One thread per camera rolls RTSP frames into fixed-length clips and hands each off to clip_processor."""
 import logging
 import os
 import threading
@@ -23,20 +12,17 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-# Force RTSP over TCP instead of the FFmpeg default (UDP). Over UDP, any
-# dropped packet corrupts the H.264 bitstream mid-GOP (floods of "no frame!",
-# "nal size exceeds length", "decode_slice_header error" from ffmpeg) — much
-# more likely on WiFi-based cameras/vessel networks than on wired ones. TCP
-# retransmits instead of dropping, trading a little latency for a clean stream.
-# RTSP-only option; harmless for the non-RTSP video files read elsewhere.
+# RTSP over TCP: UDP packet loss corrupts the H.264 bitstream mid-GOP; TCP retransmits instead.
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
-_MAX_CONSECUTIVE_READ_FAILURES = 30   # ~1.5s of stalled reads before reconnecting
+_OPEN_TIMEOUT_MSEC = 10_000
+_READ_TIMEOUT_MSEC = 5_000
+
+_MAX_CONSECUTIVE_READ_FAILURES = 6   # ~30s of stalled/failed reads before reconnecting
 
 
 def build_stream_url(cam) -> Optional[str]:
-    """Assembles an rtsp:// URL from a Camera row's ip/username/password/path.
-    Returns None if the camera has no IP configured (nothing to record)."""
+    """Assembles an rtsp:// URL from a Camera row; None if no IP is configured."""
     if not cam.camera_ip:
         return None
 
@@ -61,9 +47,7 @@ def build_stream_url(cam) -> Optional[str]:
 
 
 class ClipRecorder:
-    """Owns one camera's capture thread. Reconnects on stream drop; a clip in
-    progress at the moment of disconnect is still flushed and handed off
-    rather than discarded."""
+    """Owns one camera's capture thread; reconnects on drop, flushing any in-progress clip first."""
 
     def __init__(
         self,
@@ -101,6 +85,10 @@ class ClipRecorder:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         while not self._stop.is_set():
+            # cap = cv2.VideoCapture(self.stream_url, cv2.CAP_FFMPEG, [
+            #     cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, _OPEN_TIMEOUT_MSEC,
+            #     cv2.CAP_PROP_READ_TIMEOUT_MSEC, _READ_TIMEOUT_MSEC,
+            # ])
             cap = cv2.VideoCapture(self.stream_url)
             if not cap.isOpened():
                 self.status = "reconnecting"
@@ -117,14 +105,23 @@ class ClipRecorder:
             fw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
             fh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
 
+            # Keep every other frame + halve fps (duration unchanged) to cut processing cost.
+            thinning_enabled = settings.STREAM_FRAME_THINNING_ENABLED
+            record_fps = fps / 2.0 if thinning_enabled else fps
+
             self.status = "connected"
             self.last_error = None
-            logger.info(f"[recorder:{self.camera_id}] connected ({fw}x{fh}@{fps:.1f}fps)")
+            logger.info(
+                f"[recorder:{self.camera_id}] connected ({fw}x{fh}@{fps:.1f}fps source, "
+                + (f"recording thinned to {record_fps:.1f}fps)"
+                   if thinning_enabled else "recording at original fps, thinning disabled)")
+            )
 
             writer: Optional[cv2.VideoWriter] = None
             clip_path: Optional[Path] = None
             clip_started = 0.0
             consecutive_failures = 0
+            raw_frame_idx = 0
 
             try:
                 while not self._stop.is_set():
@@ -136,6 +133,8 @@ class ClipRecorder:
                         time.sleep(0.05)
                         continue
                     consecutive_failures = 0
+                    keep_frame = (raw_frame_idx % 2 == 0) if thinning_enabled else True
+                    raw_frame_idx += 1
 
                     now = time.monotonic()
                     if writer is None:
@@ -143,9 +142,10 @@ class ClipRecorder:
                         ts = time.strftime("%Y%m%d_%H%M%S")
                         clip_path = out_dir / f"{self.camera_id}_{ts}.mp4"
                         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                        writer = cv2.VideoWriter(str(clip_path), fourcc, fps, (fw, fh))
+                        writer = cv2.VideoWriter(str(clip_path), fourcc, record_fps, (fw, fh))
 
-                    writer.write(frame)
+                    if keep_frame:
+                        writer.write(frame)
 
                     if now - clip_started >= settings.STREAM_CLIP_SECONDS:
                         writer.release()
@@ -170,11 +170,7 @@ class ClipRecorder:
         logger.info(f"[recorder:{self.camera_id}] stopped")
 
     def _hand_off_clip(self, clip_path: str, duration_sec: float) -> None:
-        """Isolated from the frame-read loop's own try/except: handing a clip
-        to the processing queue is local, in-process bookkeeping — a failure
-        there is not a stream problem and must never be misread as one (which
-        would tear down and needlessly reconnect a perfectly healthy RTSP
-        connection)."""
+        """Failure here is a queueing problem, not a stream problem -- must not trigger a reconnect."""
         try:
             self._on_clip_ready(self.camera_id, self.camera_name, clip_path, duration_sec)
         except Exception:
@@ -182,9 +178,7 @@ class ClipRecorder:
 
 
 class StreamRecorderManager:
-    """Starts/stops one ClipRecorder per camera, driven by each Camera row's
-    recording_enabled flag and stream config. Call sync_camera() after any
-    camera create/update/delete so recording state matches the DB immediately."""
+    """Starts/stops one ClipRecorder per camera; call sync_camera() after any camera create/update/delete."""
 
     def __init__(self) -> None:
         self._recorders: dict[str, ClipRecorder] = {}

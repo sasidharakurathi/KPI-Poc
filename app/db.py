@@ -69,8 +69,7 @@ class Camera(SQLModel, table=True):
     priority: str = "medium"
     kpi_ids: list = Field(default_factory=list, sa_column=Column(_JSON))
 
-    # IP camera continuous recording — stream_password is stored encrypted
-    # (see email_crypto.encrypt_secret/decrypt_secret, reused generically here).
+    # stream_password is stored encrypted (see email_crypto.encrypt_secret/decrypt_secret)
     camera_ip: Optional[str] = None
     rtsp_port: int = 554
     stream_username: Optional[str] = None
@@ -122,11 +121,7 @@ def get_engine():
 
 
 def _migrate_camera_stream_columns() -> None:
-    """Adds the IP-camera-recording columns to a pre-existing `cameras` table.
-    SQLModel.metadata.create_all() only creates missing tables — it never
-    alters an existing table's columns — so a DB created before these fields
-    were added to the Camera model needs them added explicitly here. No-op
-    for a fresh DB (create_all() will make the table with every column)."""
+    """Adds IP-camera-recording columns to a pre-existing `cameras` table; create_all() never alters existing tables. No-op for a fresh DB."""
     engine = get_engine()
     inspector = _inspect(engine)
     if "cameras" not in inspector.get_table_names():

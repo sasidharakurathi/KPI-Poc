@@ -1,11 +1,4 @@
-"""
-Job manager backed by the SQLModel DB layer.
-
-Same public interface as the old in-memory manager:
-    job_manager.create_job(...)  → Job
-    job_manager.get(job_id)      → Optional[Job]
-    job_manager.update(...)
-"""
+"""Job manager backed by the SQLModel DB layer."""
 from datetime import datetime
 from typing import Any, Optional
 

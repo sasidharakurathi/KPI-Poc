@@ -1,24 +1,4 @@
-"""
-KPI compute logger — per-model resource usage log.
-
-Writes logs/kpi_run_{job_id}_{timestamp}.json after each completed job.
-
-One entry per .pt model file.  Metrics are scoped to the current process
-(not system-wide) so other applications do not pollute the numbers.
-
-  cpu.avg_percent / peak_percent   — process CPU %, sampled every 500 ms
-  ram.before_mb / after_mb / delta_mb / avg_percent / peak_percent
-                                   — process RSS memory
-  gpu.util_avg_percent / peak_percent — GPU compute % via torch.cuda.utilization
-  gpu.mem_before_mb / peak_mb / after_mb / delta_mb / avg_percent / peak_percent
-                                   — GPU allocated memory
-
-NOTE: KPIs run concurrently in a ThreadPoolExecutor, so sibling KPIs running
-at the same time will slightly raise the GPU/RAM baseline for each other.
-CPU is process-level, so it reflects only this process but across all threads.
-Multi-model KPIs (PPE, Floating, MobileUsage) show combined metrics per model
-because inference for both models happens inside the same process_video() call.
-"""
+"""KPI compute logger -- writes logs/kpi_run_{job_id}_{timestamp}.json with per-model, process-scoped CPU/RAM/GPU resource usage after each job."""
 
 import json
 import logging
@@ -40,10 +20,6 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOGS_DIR = BASE_DIR / "logs"
-
-# ---------------------------------------------------------------------------
-# nvidia-smi helper (cached; works on Windows, Linux, Mac with NVIDIA GPU)
-# ---------------------------------------------------------------------------
 
 _NVIDIASMI_CMD: Optional[list] = None   # None = unchecked; [] = not available
 
@@ -92,10 +68,6 @@ def _smi_gpu_util(gpu_idx: int) -> Optional[float]:
         pass
     return None
 
-
-# ---------------------------------------------------------------------------
-# Data-classes
-# ---------------------------------------------------------------------------
 
 @dataclass
 class SystemInfo:
@@ -168,24 +140,8 @@ class PipelineRunLog:
     notes: list[str] = field(default_factory=list)
 
 
-# ---------------------------------------------------------------------------
-# Background resource sampler (process-level)
-# ---------------------------------------------------------------------------
-
 class _ResourceSampler:
-    """
-    Polls process-level CPU %, process RSS %, GPU utilisation %, and GPU
-    allocated memory every `interval` seconds on a daemon thread.
-
-    Each instance owns its own psutil.Process() object so concurrent samplers
-    (one per KPI) never race each other's cpu_percent() internal timer.
-
-    GPU backend detection order:
-      CUDA (NVIDIA) → torch.cuda.utilization + memory_allocated
-      MPS  (Apple)  → torch.mps.current_allocated_memory (util not available)
-    Both are collected in separate try/except blocks so a util failure does
-    not silently drop the memory sample.
-    """
+    """Polls process CPU/RAM/GPU usage every `interval` seconds on a daemon thread; one instance per KPI to avoid shared psutil state."""
 
     def __init__(self, device: str, interval: float = 0.25) -> None:
         self._device   = device
@@ -197,7 +153,6 @@ class _ResourceSampler:
         # Per-instance Process object — avoids shared-state race between parallel KPIs
         self._proc = psutil.Process(os.getpid())
 
-        # ── CUDA (NVIDIA) ───────────────────────────────────────────────────
         self._cuda = (
             torch.cuda.is_available()
             and device.startswith("cuda")
@@ -212,7 +167,6 @@ class _ResourceSampler:
             except Exception:
                 self._cuda = False
 
-        # ── Apple MPS ───────────────────────────────────────────────────────
         self._mps = (
             not self._cuda
             and hasattr(torch.backends, "mps")
@@ -231,8 +185,6 @@ class _ResourceSampler:
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
-
-    # ── public ───────────────────────────────────────────────────────────────
 
     def start(self) -> None:
         self._cpu_samples     = []
@@ -285,48 +237,35 @@ class _ResourceSampler:
 
         return out
 
-    # ── internal ─────────────────────────────────────────────────────────────
-
     def _poll(self) -> None:
-        # CUDA: pin this thread to the right device so memory_allocated() is reliable
         if self._cuda:
             try:
-                torch.cuda.set_device(self._gpu_idx)
+                torch.cuda.set_device(self._gpu_idx)   # pin thread so memory_allocated() is reliable
             except Exception:
                 pass
 
         while self._running:
-            # Sleep FIRST so each sample covers a full interval window.
-            # (Sampling immediately after start() gives a ~0 ms delta → cpu_percent = 0.)
-            time.sleep(self._interval)
+            time.sleep(self._interval)   # sleep first so each sample covers a full interval window
             if not self._running:
                 break
 
-            # ── CPU ─────────────────────────────────────────────────────────
-            # Normalise by logical core count so value is always 0–100 %.
-            # (psutil reports per-core %, so a fully saturated 16-core machine
-            #  returns 1600 % without normalisation.)
             try:
                 raw = self._proc.cpu_percent(interval=None)
-                self._cpu_samples.append(round(raw / self._cpu_count, 1))
+                self._cpu_samples.append(round(raw / self._cpu_count, 1))   # normalized to 0-100%
             except Exception:
                 pass
 
-            # ── RAM ─────────────────────────────────────────────────────────
             try:
                 rss_mb = self._proc.memory_info().rss / (1024 ** 2)
                 self._ram_pct_samples.append(round(rss_mb / self._total_ram_mb * 100, 2))
             except Exception:
                 pass
 
-            # ── GPU utilisation % ────────────────────────────────────────────
-            # Kept in a separate block from memory so a failure here never
-            # prevents the memory sample from being collected.
+            # Utilization is a separate try/except from memory below, so one failing never drops the other.
             if self._cuda:
                 util_got = False
 
-                # 1) torch.cuda.utilization — fast, but returns 0 on some WDDM
-                #    laptop GPUs even when the GPU is actively running kernels.
+                # torch.cuda.utilization is fast but returns 0 on some WDDM laptop GPUs.
                 try:
                     val = float(torch.cuda.utilization(self._gpu_idx))
                     if val > 0:
@@ -335,8 +274,7 @@ class _ResourceSampler:
                 except Exception:
                     pass
 
-                # 2) pynvml direct (same underlying NVML, but avoids torch wrapper bugs)
-                if not util_got:
+                if not util_got:   # fall back to pynvml directly (same NVML, avoids torch wrapper bugs)
                     try:
                         import pynvml               # type: ignore[import]
                         pynvml.nvmlInit()
@@ -348,9 +286,7 @@ class _ResourceSampler:
                     except Exception:
                         pass
 
-                # 3) nvidia-smi subprocess — most reliable on WDDM (laptop GPUs),
-                #    but heavy: only call every ~2 s.
-                if not util_got:
+                if not util_got:   # last resort: nvidia-smi subprocess, most reliable but heavy -- only every ~2s
                     self._smi_tick += 1
                     if self._smi_tick >= self._smi_every:
                         self._smi_tick = 0
@@ -358,7 +294,6 @@ class _ResourceSampler:
                         if val is not None:
                             self._gpu_util.append(val)
 
-            # ── GPU memory ──────────────────────────────────────────────────
             if self._cuda:
                 try:
                     self._gpu_mem_mb.append(
@@ -374,10 +309,6 @@ class _ResourceSampler:
                 except Exception:
                     pass
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _file_size_mb(path: str) -> Optional[float]:
     try:
@@ -411,10 +342,6 @@ def _extract_model_paths(kpi_cfg: dict) -> list[str]:
         if "model_path" in k and isinstance(v, str) and v
     )
 
-
-# ---------------------------------------------------------------------------
-# System info
-# ---------------------------------------------------------------------------
 
 def collect_system_info(device: str) -> SystemInfo:
     gpu_name = gpu_total_gb = cuda_ver = None
@@ -451,15 +378,8 @@ def collect_system_info(device: str) -> SystemInfo:
     )
 
 
-# ---------------------------------------------------------------------------
-# Per-KPI metrics collector (context manager used in pipeline._run_kpi)
-# ---------------------------------------------------------------------------
-
 class KPIMetricsCollector:
-    """
-    Wraps one KPI's process_video() call and measures resource usage.
-    After __exit__, call .to_model_logs() to get one ModelRunLog per .pt file.
-    """
+    """Wraps one KPI's process_video() call and measures resource usage; call .to_model_logs() after __exit__."""
 
     def __init__(self, kpi, device: str) -> None:
         self._kpi     = kpi
@@ -555,10 +475,6 @@ class KPIMetricsCollector:
         ]
 
 
-# ---------------------------------------------------------------------------
-# Log writers
-# ---------------------------------------------------------------------------
-
 def write_pipeline_log(log: PipelineRunLog) -> Path:
     """Write the full detailed log (JSON) and the compact summary (CSV + JSON)."""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -570,7 +486,6 @@ def write_pipeline_log(log: PipelineRunLog) -> Path:
 
     logger.info(f"[kpi_logger] detailed log → {out_path}")
 
-    # Also write the compact summary alongside
     try:
         _write_summary(log, ts)
     except Exception as e:
@@ -580,14 +495,7 @@ def write_pipeline_log(log: PipelineRunLog) -> Path:
 
 
 def _write_summary(log: PipelineRunLog, ts: str) -> None:
-    """
-    Write a compact per-model summary as both CSV and JSON.
-
-    Columns:
-      model_file | kpi | size_mb | time_sec | fps |
-      cpu_peak_% | ram_delta_mb | gpu_util_peak_% | gpu_mem_peak_mb
-    GPU columns are included only when the system has a GPU.
-    """
+    """Write a compact per-model summary as both CSV and JSON; GPU columns only if the system has a GPU."""
     import csv
 
     has_gpu = log.system.gpu_name is not None
@@ -610,7 +518,6 @@ def _write_summary(log: PipelineRunLog, ts: str) -> None:
 
     stem = f"kpi_summary_{log.job_id}_{ts}"
 
-    # ── CSV ─────────────────────────────────────────────────────────────────
     csv_path = LOGS_DIR / f"{stem}.csv"
     fieldnames = list(rows[0].keys()) if rows else []
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -618,7 +525,6 @@ def _write_summary(log: PipelineRunLog, ts: str) -> None:
         writer.writeheader()
         writer.writerows(rows)
 
-    # ── JSON ─────────────────────────────────────────────────────────────────
     json_path = LOGS_DIR / f"{stem}.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(rows, f, indent=2, default=str)

@@ -6,8 +6,9 @@ from typing import Optional
 
 from .job_manager import job_manager
 from .kpis import get_registered_kpis
-from .kpis.base import KPIResult
+from .kpis.base import BaseKPI, KPIResult
 from .kpis.shared_inference import SharedInference
+from .frame_source import SharedFrameSource
 from .schemas import JobStatus
 from .config import settings
 from .kpi_logger import (
@@ -35,8 +36,18 @@ def _get_executor() -> ThreadPoolExecutor:
     return _executor
 
 
+def _kpi_supports_split(kpi) -> bool:
+    """True if this KPI overrides process_frame() (uses the split contract)."""
+    return type(kpi).process_frame is not BaseKPI.process_frame
+
+
 def _run_kpi(
-    kpi, video_path: str, job_id: str, device: str
+    kpi,
+    video_path: str,
+    job_id: str,
+    device: str,
+    source: Optional[SharedFrameSource] = None,
+    consumer_idx: Optional[int] = None,
 ) -> tuple[str, Optional[KPIResult], float, KPIMetricsCollector, Optional[Exception]]:
     logger.info(f"[{kpi.name}] starting")
     t0 = time.perf_counter()
@@ -45,7 +56,17 @@ def _run_kpi(
 
     with KPIMetricsCollector(kpi, device) as coll:
         try:
-            result = kpi.process_video(video_path, job_id=job_id)
+            if source is not None:
+                try:
+                    kpi.setup(video_path, job_id=job_id)
+                    for frame_idx, frame in source.iter_frames(consumer_idx):
+                        kpi.process_frame(frame_idx, frame)
+                    result = kpi.finalize()
+                finally:
+                    # Stop the decoder from blocking on this queue if we bailed out early.
+                    source.close_consumer(consumer_idx)
+            else:
+                result = kpi.process_video(video_path, job_id=job_id)
         except Exception as exc:
             exc_store = exc
         finally:
@@ -95,24 +116,49 @@ def run_pipeline(
         for kpi in kpis:
             kpi.shared_cache = job_shared_cache
 
+        split_kpis  = [k for k in kpis if _kpi_supports_split(k)]
+        legacy_kpis = [k for k in kpis if k not in split_kpis]
+
+        source: Optional[SharedFrameSource] = None
+        split_executor: Optional[ThreadPoolExecutor] = None
+        if split_kpis:
+            source = SharedFrameSource(video_path, len(split_kpis))
+            source.start()
+            # Sized exactly to this job's split-KPI count so every one starts
+            # immediately -- otherwise a queued KPI would leave the shared
+            # decoder blocked trying to feed it, starving its siblings too.
+            split_executor = ThreadPoolExecutor(
+                max_workers=len(split_kpis), thread_name_prefix=f"kpi-split-{job_id[:8]}"
+            )
+        if legacy_kpis:
+            logger.info(
+                f"[pipeline] job {job_id}: {[k.name for k in legacy_kpis]} "
+                f"not on the split contract — decoding independently"
+            )
+
         executor = _get_executor()
-        futures = {
-            executor.submit(_run_kpi, kpi, video_path, job_id, device): kpi.name
-            for kpi in kpis
-        }
-        for future in as_completed(futures):
-            kpi_name = futures[future]
-            try:
-                name, result, elapsed, coll, exc = future.result()
-                if coll:
-                    model_logs.extend(coll.to_model_logs())
-                if exc:
-                    logger.error(f"[{kpi_name}] KPI failed — excluded from output")
-                else:
-                    kpi_results[name] = result
-                    kpi_timings[name] = round(elapsed, 2)
-            except Exception as exc:
-                logger.error(f"[{kpi_name}] unexpected executor error: {exc}", exc_info=True)
+        futures = {}
+        try:
+            for idx, kpi in enumerate(split_kpis):
+                futures[split_executor.submit(_run_kpi, kpi, video_path, job_id, device, source, idx)] = kpi.name
+            for kpi in legacy_kpis:
+                futures[executor.submit(_run_kpi, kpi, video_path, job_id, device)] = kpi.name
+            for future in as_completed(futures):
+                kpi_name = futures[future]
+                try:
+                    name, result, elapsed, coll, exc = future.result()
+                    if coll:
+                        model_logs.extend(coll.to_model_logs())
+                    if exc:
+                        logger.error(f"[{kpi_name}] KPI failed — excluded from output")
+                    else:
+                        kpi_results[name] = result
+                        kpi_timings[name] = round(elapsed, 2)
+                except Exception as exc:
+                    logger.error(f"[{kpi_name}] unexpected executor error: {exc}", exc_info=True)
+        finally:
+            if split_executor is not None:
+                split_executor.shutdown(wait=True)
 
         if not kpi_results:
             raise RuntimeError("All KPIs failed — no results produced.")

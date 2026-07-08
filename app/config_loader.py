@@ -65,19 +65,13 @@ def update_kpi_config(kpi_class_name: str, updates: dict) -> dict:
 # ── KPI registry (numeric ID → KPI name) ─────────────────────────────────────
 
 def get_kpi_registry() -> dict[str, str]:
-    """
-    Returns the kpi_registry mapping: {str(kpi_id): kpi_name}.
-    e.g. {"7": "fire_smoke", "17": "mobile_usage"}
-    """
+    """The kpi_registry mapping: {str(kpi_id): kpi_name}."""
     _ensure_loaded()
     return dict(_cache.get("kpi_registry", {}))
 
 
 def resolve_kpi_names(kpi_ids: list[int]) -> list[str]:
-    """
-    Convert a list of numeric KPI IDs to implemented KPI names.
-    IDs without a mapping in kpi_registry are silently skipped.
-    """
+    """Numeric KPI IDs to implemented KPI names; unmapped IDs are silently skipped."""
     registry = get_kpi_registry()
     seen, names = set(), []
     for kid in kpi_ids:

@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 
 from ... import model_registry
@@ -19,98 +18,89 @@ class PeopleCountKPI(BaseKPI):
     name         = "people_count"
     display_name = "People Count"
 
-    def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
-        device = settings.DEVICE
-        half   = settings.USE_HALF and device != "cpu"
+    def setup(self, video_path: str, job_id: str = "") -> None:
+        self._job_id = job_id
+        self.device = settings.DEVICE
+        self.half   = settings.USE_HALF and self.device != "cpu"
 
-        model_path       = self._get("model_path",       "app/models/ppl-count-yolo26m.pt")
-        conf             = self._get("confidence",       _DEFAULT_CONF)
-        min_box_area     = self._get("min_box_area",     _DEFAULT_MIN_BOX_AREA)
-        max_pillar_ratio = self._get("max_pillar_ratio", _DEFAULT_MAX_PILLAR_R)
-        min_person_ratio = self._get("min_person_ratio", _DEFAULT_MIN_PERSON_R)
-        frame_stride     = max(1, self._get("frame_stride", 2))
-        min_confirm_frames = max(1, self._get("min_confirm_frames", 2))
-        infer_imgsz      = self._get("infer_imgsz", 640)
+        self.model_path       = self._get("model_path",       "app/models/ppl-count-yolo26m.pt")
+        self.conf             = self._get("confidence",       _DEFAULT_CONF)
+        self.min_box_area     = self._get("min_box_area",     _DEFAULT_MIN_BOX_AREA)
+        self.max_pillar_ratio = self._get("max_pillar_ratio", _DEFAULT_MAX_PILLAR_R)
+        self.min_person_ratio = self._get("min_person_ratio", _DEFAULT_MIN_PERSON_R)
+        self.frame_stride     = max(1, self._get("frame_stride", 2))
+        self.min_confirm_frames = max(1, self._get("min_confirm_frames", 2))
+        self.infer_imgsz      = self._get("infer_imgsz", 640)
 
-        model = model_registry.get_model(model_path)
-        # Preloaded/shared across jobs — clear leftover ByteTrack state from a
-        # previous video before our own persist=True loop starts.
-        model_registry.reset_tracker(model)
-        cap   = cv2.VideoCapture(video_path)
+        self.model = model_registry.get_model(self.model_path)
+        model_registry.reset_tracker(self.model)   # shared model instance may have stale tracker state
 
-        track_seen: dict[int, int] = {}
-        unique_ids: set[int] = set()
-        alert_events = 0
-        frame_idx    = 0
-        batch: list[np.ndarray] = []
+        self.track_seen: dict[int, int] = {}
+        self.unique_ids: set[int] = set()
+        self.alert_events = 0
+        self._frames_seen = 0
+        self.batch: list[np.ndarray] = []
 
-        def _process_result(results) -> None:
-            nonlocal alert_events
-            if results is None:
-                return
-            boxes = results.boxes
-            if boxes is None or boxes.id is None:
-                return
+    def _process_result(self, results) -> None:
+        if results is None:
+            return
+        boxes = results.boxes
+        if boxes is None or boxes.id is None:
+            return
 
-            track_ids  = boxes.id.int().cpu().tolist()
-            cls_ids    = boxes.cls.int().cpu().tolist()
-            xyxy_list  = boxes.xyxy.int().cpu().tolist()
-            confs      = boxes.conf.cpu().tolist()
+        track_ids  = boxes.id.int().cpu().tolist()
+        cls_ids    = boxes.cls.int().cpu().tolist()
+        xyxy_list  = boxes.xyxy.int().cpu().tolist()
+        confs      = boxes.conf.cpu().tolist()
 
-            for i in range(len(track_ids)):
-                if cls_ids[i] != 0 or confs[i] < conf:
-                    continue
-                x1, y1, x2, y2 = xyxy_list[i]
-                w = x2 - x1; h = y2 - y1
-                if w <= 0 or h <= 0:
-                    continue
-                area = w * h
-                asp  = h / (w + 1e-6)
-                if area < min_box_area or asp > max_pillar_ratio or asp < min_person_ratio:
-                    continue
+        for i in range(len(track_ids)):
+            if cls_ids[i] != 0 or confs[i] < self.conf:
+                continue
+            x1, y1, x2, y2 = xyxy_list[i]
+            w = x2 - x1; h = y2 - y1
+            if w <= 0 or h <= 0:
+                continue
+            area = w * h
+            asp  = h / (w + 1e-6)
+            if area < self.min_box_area or asp > self.max_pillar_ratio or asp < self.min_person_ratio:
+                continue
 
-                tid = track_ids[i]
-                if tid in unique_ids:
-                    continue
-                track_seen[tid] = track_seen.get(tid, 0) + 1
-                if track_seen[tid] < min_confirm_frames:
-                    continue
+            tid = track_ids[i]
+            if tid in self.unique_ids:
+                continue
+            self.track_seen[tid] = self.track_seen.get(tid, 0) + 1
+            if self.track_seen[tid] < self.min_confirm_frames:
+                continue
 
-                unique_ids.add(tid)
-                alert_events += 1
+            self.unique_ids.add(tid)
+            self.alert_events += 1
 
-        def _flush_batch() -> None:
-            nonlocal batch
-            if not batch:
-                return
-            results_list = model.track(
-                batch, persist=True, tracker="bytetrack.yaml",
-                conf=conf, imgsz=infer_imgsz, device=device, half=half, verbose=False,
-            )
-            if results_list:
-                for r in results_list:
-                    _process_result(r)
-            batch = []
+    def _flush_batch(self) -> None:
+        if not self.batch:
+            return
+        results_list = self.model.track(
+            self.batch, persist=True, tracker="bytetrack.yaml",
+            conf=self.conf, imgsz=self.infer_imgsz, device=self.device, half=self.half, verbose=False,
+        )
+        if results_list:
+            for r in results_list:
+                self._process_result(r)
+        self.batch = []
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+    def process_frame(self, frame_idx: int, frame: np.ndarray, job_id: str = "") -> None:
+        if frame_idx % self.frame_stride == 0:
+            self.batch.append(frame)
+            if len(self.batch) >= _BATCH_SIZE:
+                self._flush_batch()
 
-            if frame_idx % frame_stride == 0:
-                batch.append(frame)
-                if len(batch) >= _BATCH_SIZE:
-                    _flush_batch()
+        self._frames_seen = frame_idx + 1
 
-            frame_idx += 1
-
-        _flush_batch()
-
-        cap.release()
+    def finalize(self) -> KPIResult:
+        self._flush_batch()
 
         return KPIResult(self.name, self.display_name, {
-            "alert_events":     alert_events,
-            "total_foot_traffic": len(unique_ids),
-            "total_frames":     frame_idx,
-            "device":           device,
+            "alert_events":     self.alert_events,
+            "total_foot_traffic": len(self.unique_ids),
+            "total_frames":     self._frames_seen,
+            "device":           self.device,
         })

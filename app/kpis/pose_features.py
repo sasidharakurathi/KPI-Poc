@@ -1,14 +1,4 @@
-"""
-Per-track pose feature extractor.
-
-Consumes YOLO pose model output (keypoints + confidences) and produces a
-feature dict used by MobileUsageKPI and FallingPoseKPI.
-
-COCO-17 keypoint indices used:
-  0 NOSE   3 L_EAR  4 R_EAR
-  5 L_SH   6 R_SH   7 L_EL   8 R_EL   9 L_WR  10 R_WR
- 11 L_HIP 12 R_HIP 13 L_KN  14 R_KN  15 L_AN  16 R_AN
-"""
+"""Per-track pose feature extractor -- turns YOLO pose keypoints into a feature dict for MobileUsageKPI and FallingPoseKPI."""
 from collections import deque
 from typing import Optional
 
@@ -50,10 +40,8 @@ class PoseFeatures:
         """Return a feature dict for this frame."""
         feat: dict = {}
 
-        # ── visible flags ──────────────────────────────────────────────────────
         ok = kconf >= conf_thr   # bool mask, shape (17,)
 
-        # ── body scale ────────────────────────────────────────────────────────
         bw = max(1.0, float(bbox[2] - bbox[0]))
         bh = max(1.0, float(bbox[3] - bbox[1]))
 
@@ -64,7 +52,6 @@ class PoseFeatures:
         feat["sh_width"] = sh_width
         scale = sh_width
 
-        # ── head center & ROI ─────────────────────────────────────────────────
         head_pts = [kp[i] for i in (NOSE, L_EAR, R_EAR) if ok[i]]
         if head_pts:
             head_center = np.mean(head_pts, axis=0)
@@ -79,11 +66,9 @@ class PoseFeatures:
         )
         feat["head_area"] = max(1.0, (2 * hs) ** 2)
 
-        # ── wrist positions ───────────────────────────────────────────────────
         feat["lwr"] = kp[L_WR]; feat["rwr"] = kp[R_WR]
         feat["lwr_ok"] = bool(ok[L_WR]); feat["rwr_ok"] = bool(ok[R_WR])
 
-        # ── wrist-to-ear distance (normalized) ────────────────────────────────
         we_dists = []
         for wi in (L_WR, R_WR):
             if not ok[wi]: continue
@@ -92,7 +77,6 @@ class PoseFeatures:
                     we_dists.append(np.linalg.norm(kp[wi] - kp[ei]) / scale)
         feat["min_wrist_ear"] = float(min(we_dists)) if we_dists else 99.0
 
-        # ── wrist-to-nose distance (normalized) ───────────────────────────────
         wn_dists = []
         if ok[NOSE]:
             for wi in (L_WR, R_WR):
@@ -100,7 +84,6 @@ class PoseFeatures:
                     wn_dists.append(np.linalg.norm(kp[wi] - kp[NOSE]) / scale)
         feat["min_wrist_nose"] = float(min(wn_dists)) if wn_dists else 99.0
 
-        # ── elbow angles ──────────────────────────────────────────────────────
         elbow_angles = []
         if ok[L_SH] and ok[L_EL] and ok[L_WR]:
             elbow_angles.append(_angle_at_joint(kp[L_SH], kp[L_EL], kp[L_WR]))
@@ -108,7 +91,6 @@ class PoseFeatures:
             elbow_angles.append(_angle_at_joint(kp[R_SH], kp[R_EL], kp[R_WR]))
         feat["min_elbow_angle"] = float(min(elbow_angles)) if elbow_angles else 180.0
 
-        # ── torso angle (shoulder line vs horizontal) ─────────────────────────
         if ok[L_SH] and ok[R_SH]:
             dy = float(kp[R_SH][1] - kp[L_SH][1])
             dx = float(kp[R_SH][0] - kp[L_SH][0]) + 1e-6
@@ -116,14 +98,11 @@ class PoseFeatures:
         else:
             feat["torso_angle"] = 0.0
 
-        # ── bbox aspect (height / width) ──────────────────────────────────────
         feat["bbox_aspect"] = bh / bw
 
-        # ── body center ───────────────────────────────────────────────────────
         feat["body_center"] = np.array([(bbox[0]+bbox[2])/2,
                                         (bbox[1]+bbox[3])/2])
 
-        # ── temporal: velocity ────────────────────────────────────────────────
         cx = (bbox[0] + bbox[2]) / 2
         cy = (bbox[1] + bbox[3]) / 2
         self._ring.append(np.array([cx, cy]))

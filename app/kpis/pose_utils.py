@@ -25,11 +25,7 @@ def run_pose(pose_model: YOLO, frame: np.ndarray, imgsz: int = 640):
 
 
 def human_keypoints_in_box(pose_results, x1: int, y1: int, x2: int, y2: int) -> bool:
-    """
-    Returns True if any person in pose_results has shoulder/hip keypoints
-    whose centroid (or any individual point) falls inside (x1,y1)-(x2,y2).
-    A non-human object produces zero valid keypoints and always returns False.
-    """
+    """True if any person's shoulder/hip keypoint centroid (or point) falls inside the box."""
     for r in pose_results:
         if r.keypoints is None:
             continue
@@ -71,11 +67,7 @@ def _overlap_frac(a, b) -> float:
 def human_confirmed_in_box(
     pose_results, x1: int, y1: int, x2: int, y2: int, box_overlap_thr: float = 0.35
 ) -> bool:
-    """
-    Returns True if pose_results corroborates a real human in (x1,y1)-(x2,y2):
-    either the pose model's own person box overlaps it substantially, or
-    shoulder/hip keypoints resolve inside it.
-    """
+    """True if the pose model's person box overlaps this box, or shoulder/hip keypoints resolve inside it."""
     target = (x1, y1, x2, y2)
     for r in pose_results:
         boxes = r.boxes

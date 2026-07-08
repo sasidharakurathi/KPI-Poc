@@ -11,9 +11,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Queued-but-not-yet-processed clips at/above this count triggers a warning
-# log — a visible signal that processing is falling behind the live
-# recording rate, well before it becomes a real problem.
+# Queue depth at/above this logs a warning that processing is falling behind the live recording rate.
 _BACKLOG_WARNING_THRESHOLD = 3
 
 
@@ -62,10 +60,7 @@ class ClipProcessor:
             try:
                 self._process(job)
             except Exception:
-                # A clip's setup/DB work can fail for reasons unrelated to the KPI
-                # pipeline itself (run_pipeline never raises — see module docstring).
-                # Whatever the cause, one bad clip must never stop every clip queued
-                # behind it from ever being processed.
+                # One bad clip must never stop every clip queued behind it from being processed.
                 logger.exception(
                     f"[clip-processor] unexpected error processing {job.clip_path} — "
                     f"discarding this clip and continuing with the next one"

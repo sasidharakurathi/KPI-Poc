@@ -251,8 +251,7 @@ def notify_alert(
     confidence: float,
     frame_bytes: Optional[bytes] = None,
 ) -> None:
-    """Send an email for a newly-saved alert, if email is enabled/configured.
-    Never raises — failures are logged, not propagated to the KPI pipeline."""
+    """Send an email for a newly-saved alert, if configured. Never raises -- failures are logged only."""
     cfg = get_email_config()
     if not cfg["enabled"] or not cfg["recipients"] or not cfg["smtp_host"]:
         return

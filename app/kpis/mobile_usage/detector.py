@@ -1,20 +1,4 @@
-"""
-Mobile Phone Usage KPI.
-
-Two-model pipeline:
-  1. YOLO pose model → person tracks + keypoints
-  2. YOLO phone model → phone box detections
-
-Phone→person association (3-gate):
-  a. Bounding-box overlap  ≥ min_overlap_frac
-  b. Phone area  ≥ min_area_px  AND aspect ratio within [aspect_min, aspect_max]
-  c. Keypoint proximity: phone centre near wrist, head ROI, or body centre
-
-Optional smoking override (batched cigarette model):
-  - If a person's upper-body crop contains a cigarette, suppress phone alert for them.
-
-EventBus debounces per-track streaks with cooldown.
-"""
+"""Mobile Phone Usage KPI -- pose model tracks persons, phone model detects phones, 3-gate association links them; a cigarette-crop override suppresses false positives from smoking."""
 import cv2
 import numpy as np
 from collections import defaultdict
@@ -110,32 +94,33 @@ class MobileUsageKPI(BaseKPI):
     name = "mobile_usage"
     display_name = "Mobile Phone Usage"
 
-    def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
-        device = settings.DEVICE
-        half   = settings.USE_HALF and device != "cpu"
+    def setup(self, video_path: str, job_id: str = "") -> None:
+        self._job_id = job_id
+        self.device = settings.DEVICE
+        self.half   = settings.USE_HALF and self.device != "cpu"
 
-        pose_model_path = self._get("pose_model_path", "app/models/yolo26m-pose.pt")
-        phone_model_path = self._get("phone_model_path", "app/models/yolo26m.pt")
-        phone_conf      = self._get("phone_confidence",  0.25)
-        kp_conf         = self._get("kp_conf",           0.30)
-        person_conf     = self._get("confidence",        0.30)
-        frame_stride    = max(1, self._get("frame_stride", 3))
-        pose_imgsz      = self._get("pose_imgsz",  640)
-        phone_imgsz     = self._get("phone_imgsz", 640)
-        persist_frames  = self._get("persist_frames",  3)
-        cooldown_secs   = self._get("cooldown_secs",   8.0)
-        gap_tol         = self._get("gap_tol",         2)
+        self.pose_model_path  = self._get("pose_model_path", "app/models/yolo26m-pose.pt")
+        self.phone_model_path = self._get("phone_model_path", "app/models/yolo26m.pt")
+        self.phone_conf       = self._get("phone_confidence",  0.25)
+        self.kp_conf          = self._get("kp_conf",           0.30)
+        self.person_conf      = self._get("confidence",        0.30)
+        self.frame_stride     = max(1, self._get("frame_stride", 3))
+        self.pose_imgsz       = self._get("pose_imgsz",  640)
+        self.phone_imgsz      = self._get("phone_imgsz", 640)
+        persist_frames        = self._get("persist_frames",  3)
+        cooldown_secs         = self._get("cooldown_secs",   8.0)
+        gap_tol                = self._get("gap_tol",         2)
 
-        smoking_override     = self._get("smoking_override", True)
-        cig_model_path       = self._get("cigarette_model_path", "app/models/cigarette.pt")
-        cig_conf             = self._get("cigarette_confidence", 0.45)
-        cig_imgsz            = self._get("cigarette_imgsz", 320)
-        upper_body_frac      = self._get("upper_body_fraction", 0.6)
+        self.smoking_override = self._get("smoking_override", True)
+        self.cig_model_path   = self._get("cigarette_model_path", "app/models/cigarette.pt")
+        self.cig_conf         = self._get("cigarette_confidence", 0.45)
+        self.cig_imgsz        = self._get("cigarette_imgsz", 320)
+        self.upper_body_frac  = self._get("upper_body_fraction", 0.6)
 
-        elbow_angle_max = self._get("elbow_angle_max",  155)
-        hand_ear_thr    = self._get("hand_ear_thr",     0.50)
+        self.elbow_angle_max = self._get("elbow_angle_max",  155)
+        self.hand_ear_thr    = self._get("hand_ear_thr",     0.50)
 
-        assoc_cfg = {
+        self.assoc_cfg = {
             "min_overlap_frac": self._get("min_overlap_frac", 0.15),
             "min_area_px":      self._get("min_area_px",      400),
             "aspect_min":       self._get("aspect_min",       0.20),
@@ -144,186 +129,169 @@ class MobileUsageKPI(BaseKPI):
             "max_area_frac_of_person": self._get("max_area_frac_of_person", 0.12),
         }
 
-        pose_model  = model_registry.get_model(pose_model_path)
-        # This model instance may be shared with other KPIs (e.g. falling_pose,
-        # both use yolo26m-pose.pt) or a previous video's job — clear any
-        # leftover ByteTrack state before our own persist=True loop starts.
-        model_registry.reset_tracker(pose_model)
-        cig_model   = model_registry.get_model(cig_model_path) if smoking_override else None
+        self.pose_model  = model_registry.get_model(self.pose_model_path)
+        model_registry.reset_tracker(self.pose_model)   # shared model instance may have stale tracker state
+        self.cig_model = model_registry.get_model(self.cig_model_path) if self.smoking_override else None
 
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        fw  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        fh  = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.fw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.fh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
 
-        bus:        EventBus              = EventBus(persist_frames, cooldown_secs, gap_tol, fps)
-        pf_map:     dict[int, PoseFeatures] = {}
+        self.bus:    EventBus                = EventBus(persist_frames, cooldown_secs, gap_tol, fps)
+        self.pf_map: dict[int, PoseFeatures] = {}
 
-        alert_events = 0
-        total_tracks: set[int] = set()
-        frame_idx = 0
-        batch: list[tuple[int, np.ndarray]] = []
+        self.alert_events = 0
+        self.total_tracks: set[int] = set()
+        self._frames_seen = 0
+        self.batch: list[tuple[int, np.ndarray]] = []
 
-        def _process_one(fidx: int, frame: np.ndarray, r, phone_boxes_raw_for_frame: list) -> None:
-            nonlocal alert_events
+    def _process_one(self, fidx: int, frame: np.ndarray, r, phone_boxes_raw_for_frame: list) -> None:
+        if r.boxes.id is None or r.keypoints is None:
+            return
 
-            if r.boxes.id is None or r.keypoints is None:
-                return
+        track_ids   = r.boxes.id.int().cpu().tolist()
+        boxes_xyxy  = r.boxes.xyxy.cpu().numpy()
+        kps_xy      = r.keypoints.xy.cpu().numpy()     # (N, 17, 2)
+        kps_conf    = r.keypoints.conf.cpu().numpy()   # (N, 17)
+        self.total_tracks.update(track_ids)
 
-            track_ids   = r.boxes.id.int().cpu().tolist()
-            boxes_xyxy  = r.boxes.xyxy.cpu().numpy()
-            kps_xy      = r.keypoints.xy.cpu().numpy()     # (N, 17, 2)
-            kps_conf    = r.keypoints.conf.cpu().numpy()   # (N, 17)
-            total_tracks.update(track_ids)
+        feats: list[dict] = []
+        for tid, bbox, kp, kconf in zip(track_ids, boxes_xyxy, kps_xy, kps_conf):
+            if tid not in self.pf_map:
+                self.pf_map[tid] = PoseFeatures()
+            feats.append(self.pf_map[tid].update(kp, kconf, tuple(map(int, bbox)), conf_thr=self.kp_conf))
 
-            feats: list[dict] = []
-            for tid, bbox, kp, kconf in zip(track_ids, boxes_xyxy, kps_xy, kps_conf):
-                if tid not in pf_map:
-                    pf_map[tid] = PoseFeatures()
-                feats.append(pf_map[tid].update(kp, kconf, tuple(map(int, bbox)), conf_thr=kp_conf))
+        # collect upper-body + wrist-region crops for the cigarette model
+        crops: list[np.ndarray] = []
+        crop_to_person: list[int] = []
 
-            # ── Cigarette: collect upper-body + wrist-region crops (batched per frame) ─
-            crops: list[np.ndarray] = []
-            crop_to_person: list[int] = []
+        for idx_p, (tid, bbox, feat) in enumerate(zip(track_ids, boxes_xyxy, feats)):
+            x1, y1, x2, y2 = map(int, bbox)
 
-            for idx_p, (tid, bbox, feat) in enumerate(zip(track_ids, boxes_xyxy, feats)):
-                x1, y1, x2, y2 = map(int, bbox)
+            roi_h = int((y2 - y1) * self.upper_body_frac)
+            cy1 = max(0, y1); cy2 = min(self.fh, y1 + roi_h)
+            cx1 = max(0, x1); cx2 = min(self.fw, x2)
+            crop = frame[cy1:cy2, cx1:cx2]
+            if crop.size > 0:
+                crops.append(crop)
+                crop_to_person.append(idx_p)
 
-                roi_h = int((y2 - y1) * upper_body_frac)
-                cy1 = max(0, y1); cy2 = min(fh, y1 + roi_h)
-                cx1 = max(0, x1); cx2 = min(fw, x2)
-                crop = frame[cy1:cy2, cx1:cx2]
-                if crop.size > 0:
-                    crops.append(crop)
+            scale = feat.get("sh_width") or (x2 - x1) * 0.30
+            half_span = max(40, int(scale * 1.2))
+            for key, ok_key in (("lwr", "lwr_ok"), ("rwr", "rwr_ok")):
+                if not feat.get(ok_key):
+                    continue
+                wx, wy = feat[key]
+                wcx1 = max(0, int(wx - half_span)); wcy1 = max(0, int(wy - half_span))
+                wcx2 = min(self.fw, int(wx + half_span)); wcy2 = min(self.fh, int(wy + half_span))
+                wcrop = frame[wcy1:wcy2, wcx1:wcx2]
+                if wcrop.size > 0:
+                    crops.append(wcrop)
                     crop_to_person.append(idx_p)
 
-                scale = feat.get("sh_width") or (x2 - x1) * 0.30
-                half_span = max(40, int(scale * 1.2))
-                for key, ok_key in (("lwr", "lwr_ok"), ("rwr", "rwr_ok")):
-                    if not feat.get(ok_key):
-                        continue
-                    wx, wy = feat[key]
-                    wcx1 = max(0, int(wx - half_span)); wcy1 = max(0, int(wy - half_span))
-                    wcx2 = min(fw, int(wx + half_span)); wcy2 = min(fh, int(wy + half_span))
-                    wcrop = frame[wcy1:wcy2, wcx1:wcx2]
-                    if wcrop.size > 0:
-                        crops.append(wcrop)
-                        crop_to_person.append(idx_p)
+        smoking_persons: set[int] = set()
+        if self.smoking_override and self.cig_model and crops:
+            cig_res = self.cig_model(
+                crops, conf=self.cig_conf, imgsz=self.cig_imgsz,
+                device=self.device, half=self.half, verbose=False,
+            )
+            for j, cr in enumerate(cig_res):
+                if len(cr.boxes) > 0:
+                    smoking_persons.add(crop_to_person[j])
 
-            smoking_persons: set[int] = set()
-            if smoking_override and cig_model and crops:
-                cig_res = cig_model(
-                    crops, conf=cig_conf, imgsz=cig_imgsz,
-                    device=device, half=half, verbose=False,
-                )
-                for j, cr in enumerate(cig_res):
-                    if len(cr.boxes) > 0:
-                        smoking_persons.add(crop_to_person[j])
+        phone_boxes_raw = []
+        phone_conf_by_box: dict[tuple, float] = {}
+        for x1, y1, x2, y2, cls_id, conf in phone_boxes_raw_for_frame:
+            if cls_id == 67 and conf >= self.phone_conf:   # yolo26m.pt (COCO): 67 = cell phone
+                b = [int(x1), int(y1), int(x2), int(y2)]
+                phone_boxes_raw.append(b)
+                phone_conf_by_box[tuple(b)] = conf
 
-            # ── Phone detection (already run in batch — just filter this frame's boxes)
-            phone_boxes_raw = []
-            phone_conf_by_box: dict[tuple, float] = {}
-            for x1, y1, x2, y2, cls_id, conf in phone_boxes_raw_for_frame:
-                if cls_id == 67 and conf >= phone_conf:   # yolo26m.pt (COCO): 67 = cell phone
-                    b = [int(x1), int(y1), int(x2), int(y2)]
-                    phone_boxes_raw.append(b)
-                    phone_conf_by_box[tuple(b)] = conf
+        smoking_boxes_xyxy = set()
+        for sidx in smoking_persons:
+            b = boxes_xyxy[sidx]
+            smoking_boxes_xyxy.add(tuple(map(int, b)))
 
-            # ── Per-person decision ─────────────────────────────────────────
-            smoking_boxes_xyxy = set()
-            for sidx in smoking_persons:
-                b = boxes_xyxy[sidx]
-                smoking_boxes_xyxy.add(tuple(map(int, b)))
+        filtered_phone_boxes = [
+            pb for pb in phone_boxes_raw
+            if not any(_iou_frac(tuple(map(int, sb)), pb) > 0.5 for sb in smoking_boxes_xyxy)
+        ]
 
-            # filter phone boxes that overlap heavily with smoking persons
-            filtered_phone_boxes = [
-                pb for pb in phone_boxes_raw
-                if not any(_iou_frac(tuple(map(int, sb)), pb) > 0.5 for sb in smoking_boxes_xyxy)
-            ]
+        for idx_p, (tid, bbox, feat) in enumerate(
+            zip(track_ids, boxes_xyxy, feats)
+        ):
+            if idx_p in smoking_persons:
+                feat["suppress_mobile"] = True
+                self.bus.submit(tid, False, fidx)
+                continue
 
-            for idx_p, (tid, bbox, feat) in enumerate(
-                zip(track_ids, boxes_xyxy, feats)
-            ):
-                if idx_p in smoking_persons:
-                    feat["suppress_mobile"] = True
-                    bus.submit(tid, False, fidx)
-                    continue
-
-                # associate phone to this person
-                phone_hit, matched_phones = _associate_phone(
-                    filtered_phone_boxes, tuple(map(int, bbox)), feat, assoc_cfg
-                )
-
-                # pose confirmation: elbow bent AND wrist near head
-                if phone_hit:
-                    elbow_ok = feat["min_elbow_angle"] <= elbow_angle_max
-                    wrist_ok = feat["min_wrist_ear"] <= hand_ear_thr or \
-                               feat["min_wrist_nose"] <= hand_ear_thr * 1.5
-                    phone_hit = elbow_ok or wrist_ok   # either is sufficient
-
-                if bus.submit(tid, phone_hit, fidx):
-                    alert_events += 1
-                    x1, y1, x2, y2 = map(int, bbox)
-                    boxes_for_label = [(x1, y1, x2, y2, f"ID {tid} MOBILE", (220, 130, 0))]
-                    for mp in matched_phones:
-                        boxes_for_label.append((*mp, "phone", (0, 200, 255)))
-                    best_conf = max(
-                        (phone_conf_by_box.get(tuple(mp), phone_conf) for mp in matched_phones),
-                        default=phone_conf,
-                    )
-                    self._save_alert(
-                        "phone_usage_confirmed", job_id, fidx,
-                        confidence=round(best_conf, 3),
-                        extra={"track_id": int(tid)},
-                        boxes=boxes_for_label,
-                    )
-
-        def _flush_batch() -> None:
-            nonlocal batch
-            if not batch:
-                return
-            frames = [f for _, f in batch]
-
-            # ── 1. Pose + person tracking, batched ──────────────────────────
-            pose_res_list = pose_model.track(
-                frames, persist=True, tracker="bytetrack.yaml",
-                classes=[0], conf=person_conf, imgsz=pose_imgsz,
-                device=device, half=half, verbose=False,
+            phone_hit, matched_phones = _associate_phone(
+                filtered_phone_boxes, tuple(map(int, bbox)), feat, self.assoc_cfg
             )
 
-            # ── 2. Phone detection on full frame, batched via SharedInference
-            phone_boxes_by_frame = self.shared_cache.predict_boxes_batch(
-                phone_model_path, batch, phone_imgsz, device, half
-            )
+            if phone_hit:
+                elbow_ok = feat["min_elbow_angle"] <= self.elbow_angle_max
+                wrist_ok = feat["min_wrist_ear"] <= self.hand_ear_thr or \
+                           feat["min_wrist_nose"] <= self.hand_ear_thr * 1.5
+                phone_hit = elbow_ok or wrist_ok   # either is sufficient
 
-            for (fidx, frame), r in zip(batch, pose_res_list):
-                _process_one(fidx, frame, r, phone_boxes_by_frame.get(fidx, []))
+            if self.bus.submit(tid, phone_hit, fidx):
+                self.alert_events += 1
+                x1, y1, x2, y2 = map(int, bbox)
+                boxes_for_label = [(x1, y1, x2, y2, f"ID {tid} MOBILE", (220, 130, 0))]
+                for mp in matched_phones:
+                    boxes_for_label.append((*mp, "phone", (0, 200, 255)))
+                best_conf = max(
+                    (phone_conf_by_box.get(tuple(mp), self.phone_conf) for mp in matched_phones),
+                    default=self.phone_conf,
+                )
+                self._save_alert(
+                    "phone_usage_confirmed", self._job_id, fidx,
+                    confidence=round(best_conf, 3),
+                    extra={"track_id": int(tid)},
+                    boxes=boxes_for_label,
+                )
 
-            batch = []
+    def _flush_batch(self) -> None:
+        if not self.batch:
+            return
+        frames = [f for _, f in self.batch]
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+        pose_res_list = self.pose_model.track(
+            frames, persist=True, tracker="bytetrack.yaml",
+            classes=[0], conf=self.person_conf, imgsz=self.pose_imgsz,
+            device=self.device, half=self.half, verbose=False,
+        )
 
-            self._observe(frame, frame_idx, job_id)
+        phone_boxes_by_frame = self.shared_cache.predict_boxes_batch(
+            self.phone_model_path, self.batch, self.phone_imgsz, self.device, self.half
+        )
 
-            if frame_idx % frame_stride == 0:
-                batch.append((frame_idx, frame))
-                if len(batch) >= _BATCH_SIZE:
-                    _flush_batch()
+        for (fidx, frame), r in zip(self.batch, pose_res_list):
+            self._process_one(fidx, frame, r, phone_boxes_by_frame.get(fidx, []))
 
-            frame_idx += 1
+        self.batch = []
 
-        _flush_batch()
+    def process_frame(self, frame_idx: int, frame: np.ndarray, job_id: str = "") -> None:
+        self._observe(frame, frame_idx, self._job_id)
 
-        cap.release()
+        if frame_idx % self.frame_stride == 0:
+            self.batch.append((frame_idx, frame))
+            if len(self.batch) >= _BATCH_SIZE:
+                self._flush_batch()
+
+        self._frames_seen = frame_idx + 1
+
+    def finalize(self) -> KPIResult:
+        self._flush_batch()
         self._finalize()
 
         return KPIResult(self.name, self.display_name, {
-            "alert_events":        alert_events,
-            "total_persons_tracked": len(total_tracks),
-            "alarm_triggered":     alert_events > 0,
-            "total_frames":        frame_idx,
-            "device":              device,
+            "alert_events":        self.alert_events,
+            "total_persons_tracked": len(self.total_tracks),
+            "alarm_triggered":     self.alert_events > 0,
+            "total_frames":        self._frames_seen,
+            "device":              self.device,
         })
