@@ -7,6 +7,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ultralytics import YOLO
 
 
+# TensorRT builder workspace (GiB) -- ultralytics defaults this high (historically 4 GiB),
+# which lets the builder pick faster but more memory-hungry kernels/tactics. On a 4GB card
+# that inflated runtime execution-context memory far past what a small model should need
+# (e.g. cigarette.pt needed ~525MB just for its execution context). Capping it forces
+# leaner tactic selection, directly shrinking each engine's runtime memory footprint.
+_WORKSPACE_GIB = 1
+
 JOBS: list[tuple[str, int, bool, int]] = [
     ("app/models/ppe.pt", 512, True, 4),
     ("app/models/yolo26s-pose.pt", 512, True, 4),        # PPEKPI's pose model
@@ -63,7 +70,10 @@ def main() -> None:
         try:
             model = YOLO(model_path)
             kwargs = {"batch": max_batch} if dynamic else {}
-            model.export(format="engine", imgsz=imgsz, dynamic=dynamic, half=True, device=0, **kwargs)
+            model.export(
+                format="engine", imgsz=imgsz, dynamic=dynamic, half=True, device=0,
+                workspace=_WORKSPACE_GIB, **kwargs,
+            )
             print(f"[done] {engine_path} ({time.perf_counter() - t0:.1f}s)", flush=True)
             _verify_engine_profile(engine_path, imgsz, max_batch)
         except Exception as e:
