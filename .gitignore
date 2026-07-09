@@ -30,8 +30,8 @@ labels.cache
 # Model artifacts and exports
 # *.pt
 # *.pth
-# *.onnx
-# *.engine
+*.onnx
+*.engine
 *.tflite
 *.pb
 *.xml
