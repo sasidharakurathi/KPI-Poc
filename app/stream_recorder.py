@@ -127,9 +127,10 @@ class ClipRecorder:
             fw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
             fh = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
 
-            # Keep every other frame + halve fps (duration unchanged) to cut processing cost.
-            thinning_enabled = settings.STREAM_FRAME_THINNING_ENABLED
-            record_fps = fps / 2.0 if thinning_enabled else fps
+            target_fps = settings.FRAME_THINNING_TARGET_FPS
+            thinning_enabled = settings.STREAM_FRAME_THINNING_ENABLED and target_fps < fps
+            record_fps = target_fps if thinning_enabled else fps
+            keep_ratio = (record_fps / fps) if thinning_enabled else 1.0
 
             self.status = "connected"
             self.last_error = None
@@ -143,7 +144,7 @@ class ClipRecorder:
             clip_path: Optional[Path] = None
             clip_started = 0.0
             consecutive_failures = 0
-            raw_frame_idx = 0
+            keep_acc = 0.0
 
             try:
                 while not self._stop.is_set():
@@ -155,8 +156,10 @@ class ClipRecorder:
                         time.sleep(0.05)
                         continue
                     consecutive_failures = 0
-                    keep_frame = (raw_frame_idx % 2 == 0) if thinning_enabled else True
-                    raw_frame_idx += 1
+                    keep_acc += keep_ratio
+                    keep_frame = keep_acc >= 1.0
+                    if keep_frame:
+                        keep_acc -= 1.0
 
                     now = time.monotonic()
                     if writer is None:

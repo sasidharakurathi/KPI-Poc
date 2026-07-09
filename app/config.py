@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     # IP camera continuous recording
     STREAM_CLIP_SECONDS: int = 120
     STREAM_RECONNECT_DELAY: float = 5.0
-    STREAM_FRAME_THINNING_ENABLED: bool = True   # keep every other frame + halve fps to cut processing time
+    STREAM_FRAME_THINNING_ENABLED: bool = True
+    FRAME_THINNING_TARGET_FPS: float = 12.0
 
     FIRE_SMOKE_MODEL_PATH: Optional[Path] = None
 
