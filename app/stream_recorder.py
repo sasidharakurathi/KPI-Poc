@@ -5,10 +5,12 @@ import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
+from urllib.parse import quote, urlsplit
 
 import cv2
 
 from .config import settings
+from .rtsp_auth_proxy import RtspAuthFixProxy, localize_url
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,11 @@ def build_stream_url(cam) -> Optional[str]:
                     "[stream:%s] stream password can't be decrypted — connecting without it",
                     cam.camera_id,
                 )
-        auth = f"{cam.stream_username}:{password}@" if password else f"{cam.stream_username}@"
+        # URL-encode: usernames/passwords can contain @, :, /, etc. which would
+        # otherwise be misread as URL separators (e.g. an '@' in the password
+        # gets mistaken for the userinfo/host boundary).
+        user_enc = quote(cam.stream_username, safe="")
+        auth = f"{user_enc}:{quote(password, safe='')}@" if password else f"{user_enc}@"
 
     path = cam.stream_path or ""
     if path and not path.startswith("/"):
@@ -62,6 +68,7 @@ class ClipRecorder:
         self._on_clip_ready = on_clip_ready
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._auth_proxy: Optional[RtspAuthFixProxy] = None
         self.status = "starting"   # starting | connected | reconnecting | stopped
         self.last_error: Optional[str] = None
 
@@ -84,12 +91,27 @@ class ClipRecorder:
         out_dir = settings.RECORDINGS_DIR / self.camera_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
+        # Some cameras (observed: Hikvision) offer both MD5 and SHA-256 Digest
+        # challenges in one 401 response; FFmpeg's RTSP client can't handle
+        # multiple challenges and never retries with credentials at all. This
+        # local proxy strips the non-MD5 challenge before FFmpeg sees it, so
+        # its normal (working) single-algorithm digest auth takes over.
+        # Harmless no-op for cameras that never send multiple challenges.
+        connect_url = self.stream_url
+        parsed = urlsplit(self.stream_url)
+        if parsed.hostname and parsed.port:
+            self._auth_proxy = RtspAuthFixProxy(
+                upstream_host=parsed.hostname, upstream_port=parsed.port
+            )
+            self._auth_proxy.start()
+            connect_url = localize_url(self.stream_url, "127.0.0.1", self._auth_proxy.local_port)
+
         while not self._stop.is_set():
-            # cap = cv2.VideoCapture(self.stream_url, cv2.CAP_FFMPEG, [
+            # cap = cv2.VideoCapture(connect_url, cv2.CAP_FFMPEG, [
             #     cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, _OPEN_TIMEOUT_MSEC,
             #     cv2.CAP_PROP_READ_TIMEOUT_MSEC, _READ_TIMEOUT_MSEC,
             # ])
-            cap = cv2.VideoCapture(self.stream_url)
+            cap = cv2.VideoCapture(connect_url)
             if not cap.isOpened():
                 self.status = "reconnecting"
                 self.last_error = "failed to open stream"
@@ -165,6 +187,10 @@ class ClipRecorder:
 
             if not self._stop.is_set():
                 self._stop.wait(settings.STREAM_RECONNECT_DELAY)
+
+        if self._auth_proxy is not None:
+            self._auth_proxy.stop()
+            self._auth_proxy = None
 
         self.status = "stopped"
         logger.info(f"[recorder:{self.camera_id}] stopped")
