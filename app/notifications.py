@@ -242,6 +242,34 @@ def _send(cfg: dict, msg: MIMEMultipart) -> None:
             server.sendmail(cfg["from_address"], cfg["recipients"], msg.as_string())
 
 
+def send_transactional_email(to_addresses: list[str], subject: str, html: str, plain: str) -> None:
+    """Send a one-off account email (activation link, password reset, user
+    onboarding) using the organization's configured SMTP settings.
+
+    Unlike notify_alert(), this is synchronous and raises on failure — Phase 0
+    callers treat it as best-effort (catch, log, continue) since SMTP may not
+    be configured yet at org-registration time.
+    """
+    cfg = get_email_config()
+    if not cfg["smtp_host"] or not cfg["from_address"]:
+        raise RuntimeError(
+            "SMTP is not configured yet — set it up under Settings > Email first."
+        )
+
+    msg = MIMEMultipart("alternative")
+    from_addr = (
+        f"{cfg['from_name']} <{cfg['from_address']}>"
+        if cfg.get("from_name") else cfg["from_address"]
+    )
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(to_addresses)
+    msg.attach(MIMEText(plain, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    _send({**cfg, "recipients": to_addresses}, msg)
+
+
 def notify_alert(
     kpi_name: str,
     display_name: str,

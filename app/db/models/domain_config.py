@@ -13,7 +13,7 @@ class Priority(SQLModel, table=True):
     name: str = Field(unique=True)           # 2-40 chars, unique within org
     color: str                               # hex color, e.g. "#FF0000"
     enabled: bool = Field(default=True)
-    org_id: Optional[int] = Field(default=None)  # FK to organizations.id
+    org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: Optional[str] = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -36,7 +36,7 @@ class Zone(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str                                   # 2-60 chars
-    org_id: Optional[int] = Field(default=None)  # FK to organizations.id
+    org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     timezone: Optional[str] = None
     description: Optional[str] = None
     enabled: bool = Field(default=True)
@@ -60,7 +60,7 @@ class EmailServer(SQLModel, table=True):
     from_name: str
     enabled: bool = Field(default=True)
     is_default: bool = Field(default=False)     # org's default outgoing server
-    org_id: Optional[int] = Field(default=None)  # FK to organizations.id
+    org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: Optional[str] = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -76,7 +76,7 @@ class KpiModelCatalog(SQLModel, table=True):
     model_path: str                             # path or URI to model weights
     confidence_threshold: float = 0.5          # 0.00-1.00
     enabled: bool = Field(default=True)
-    org_id: Optional[int] = Field(default=None)  # FK to organizations.id
+    org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: Optional[str] = None
     updated_at: datetime = Field(default_factory=datetime.utcnow)

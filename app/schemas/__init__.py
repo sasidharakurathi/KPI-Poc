@@ -1,7 +1,8 @@
 """Backward-compatible re-export: existing code imports from app.schemas directly."""
 from .auth import (
-    ChangePasswordRequest, LoginRequest, OrgRegisterRequest,
-    PasswordResetConfirm, PasswordResetRequest, RefreshRequest, TokenResponse,
+    ActivateRequest, ChangePasswordRequest, LoginRequest, LoginResponse,
+    MeResponse, OrgRegisterRequest, PasswordResetConfirm, PasswordResetRequest,
+    RefreshRequest, RegisterResponse, TokenResponse,
 )
 from .camera import (
     CameraCreate, CameraInfo, CameraKPIDetail,
@@ -25,8 +26,9 @@ from .settings import (
 from .user import UserCreate, UserListResponse, UserResponse, UserUpdate
 
 __all__ = [
-    "ChangePasswordRequest", "LoginRequest", "OrgRegisterRequest",
-    "PasswordResetConfirm", "PasswordResetRequest", "RefreshRequest", "TokenResponse",
+    "ActivateRequest", "ChangePasswordRequest", "LoginRequest", "LoginResponse",
+    "MeResponse", "OrgRegisterRequest", "PasswordResetConfirm", "PasswordResetRequest",
+    "RefreshRequest", "RegisterResponse", "TokenResponse",
     "CameraCreate", "CameraInfo", "CameraKPIDetail",
     "CameraListItem", "CameraListResponse", "CameraUpdate",
     "EmailServerCreate", "EmailServerResponse", "EmailServerUpdate",
