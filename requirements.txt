@@ -23,3 +23,8 @@ cryptography
 onnx
 onnxslim
 tensorrt-cu12==10.7.0
+
+bcrypt
+PyJWT
+pdfplumber
+email-validator

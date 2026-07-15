@@ -34,6 +34,19 @@ class Settings(BaseSettings):
     # Symmetric key for encrypting the SMTP password at rest (see .env.example)
     EMAIL_ENCRYPTION_KEY: Optional[str] = None
 
+    # ── JWT / Auth ──────────────────────────────────────────────────────────
+    JWT_AUTH_ENABLED: bool = False
+    JWT_SECRET_KEY: Optional[str] = None
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 15              # short-lived access token (PRD: 15 min)
+    JWT_REFRESH_EXPIRE_DAYS: int = 7          # server-tracked refresh token (PRD: 7 days)
+    JWT_ISSUER: str = "vision-ai"
+
+    # ── DB Migrations ───────────────────────────────────────────────────────
+    # Set True to apply schema migrations on startup. Keep False in production
+    # until you are ready to run them; then flip to True, restart once, flip back.
+    MIGRATION_ENABLED: bool = False
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     @field_validator("FIRE_SMOKE_MODEL_PATH", mode="before")
