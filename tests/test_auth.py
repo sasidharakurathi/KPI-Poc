@@ -333,3 +333,27 @@ def test_reset_password_form_submit_success_then_login(client, db_session):
         "/api/auth/login", json={"username": payload["username"], "password": new_password}
     )
     assert new_login.status_code == 200, new_login.text
+
+
+def test_register_rejects_whitespace_only_names(client):
+    for field in ("company_name", "site_name", "owner_full_name"):
+        payload = {**VALID_REGISTER_PAYLOAD, field: "   "}
+        resp = _register(client, payload)
+        assert resp.status_code == 422, f"{field}: expected 422, got {resp.status_code}"
+
+
+def test_register_integrity_error_becomes_409_not_500(client, monkeypatch):
+    """Simulates the TOCTOU race two concurrent registrations could hit: the
+    app-level 'no org exists yet' check can't see it, but the DB's primary
+    key collision on the pinned org id=1 still fires. Deterministic
+    monkeypatch instead of real thread concurrency, which is flaky against
+    SQLite's write-locking behavior."""
+    from sqlalchemy.exc import IntegrityError
+    from sqlmodel import Session
+
+    def _boom(self, *a, **kw):
+        raise IntegrityError("insert", {}, Exception("duplicate key value violates unique constraint"))
+
+    monkeypatch.setattr(Session, "commit", _boom)
+    resp = _register(client)
+    assert resp.status_code == 409, resp.text

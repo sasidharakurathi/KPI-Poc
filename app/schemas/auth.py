@@ -5,21 +5,11 @@ password reset/change. Field names follow the PRD's own field tables
 (§2.1-2.4) since auth has no pre-existing real frontend contract to match
 (see docs/IMPLEMENTATION_PLAN.md, "Critical contract-mapping notes").
 """
-import re
 from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
-_PASSWORD_RULE = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{8,128}$")
-
-
-def _validate_password_strength(value: str) -> str:
-    if not _PASSWORD_RULE.match(value):
-        raise ValueError(
-            "Password must be at least 8 characters and include an uppercase "
-            "letter, a lowercase letter, a number, and a symbol."
-        )
-    return value
+from app.core.validation import validate_non_blank, validate_password_strength as _validate_password_strength
 
 
 class OrgRegisterRequest(BaseModel):
@@ -37,6 +27,21 @@ class OrgRegisterRequest(BaseModel):
     username: str = Field(min_length=4, max_length=32, pattern=r"^[a-zA-Z0-9._-]+$")
     password: str = Field(min_length=8, max_length=128)
     confirm_password: str
+
+    @field_validator("company_name")
+    @classmethod
+    def _company_name_non_blank(cls, v: str) -> str:
+        return validate_non_blank(v, "company_name")
+
+    @field_validator("site_name")
+    @classmethod
+    def _site_name_non_blank(cls, v: str) -> str:
+        return validate_non_blank(v, "site_name")
+
+    @field_validator("owner_full_name")
+    @classmethod
+    def _owner_full_name_non_blank(cls, v: str) -> str:
+        return validate_non_blank(v, "owner_full_name")
 
     @field_validator("password")
     @classmethod

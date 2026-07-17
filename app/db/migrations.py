@@ -92,6 +92,7 @@ def _migrate_roles(engine) -> None:
     _add_columns(engine, "roles", [
         ("is_system", "BOOLEAN", " DEFAULT FALSE"),
         ("org_id",    "INTEGER", ""),
+        ("zone_ids",  "JSON",    " DEFAULT '[]'"),
     ])
 
 

@@ -16,6 +16,9 @@ class Role(SQLModel, table=True):
     # (PERMISSION_MODULES x PERMISSION_ACTIONS), matching the frontend's
     # PermissionMatrix type exactly, e.g. {"cameras": ["view", "edit"]}.
     default_email_server_id: Optional[int] = Field(default=None, foreign_key="email_servers.id")
+    # Zones this role's users are scoped to (Zone.id values); empty = no
+    # restriction. Matches the frontend's Role.zone_ids: string[].
+    zone_ids: list = Field(default_factory=list, sa_column=Column(_JSON))
     is_system: bool = Field(default=False)  # True for the built-in Owner role
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)

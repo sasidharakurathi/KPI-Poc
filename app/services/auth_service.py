@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException, Request, status
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.permissions import full_permission_matrix
@@ -63,6 +64,13 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
         raise HTTPException(status.HTTP_409_CONFLICT, "Username is already taken.")
 
     org = Organization(
+        # "One organization per deployment" is enforced above by a
+        # check-then-insert that has a TOCTOU race window under concurrent
+        # requests — two requests can both see "no org exists" before either
+        # commits. Pinning id=1 turns this into a real, DB-enforced
+        # singleton-row constraint: a second concurrent insert collides on
+        # the primary key and raises IntegrityError, caught below.
+        id=1,
         org_id=_slugify(payload.company_name),
         name=payload.company_name,
         tagline=payload.tagline,
@@ -72,39 +80,47 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
         latitude=payload.latitude,
         longitude=payload.longitude,
     )
-    db.add(org)
-    db.flush()
-
-    owner_role = Role(
-        name="Owner",
-        description=(
-            "Full access to every module, including organization and billing "
-            "settings. Cannot be edited or deleted."
-        ),
-        permissions=full_permission_matrix(),
-        is_system=True,
-        org_id=org.id,
-    )
-    db.add(owner_role)
-    db.flush()
-
     activation_token = generate_secure_token()
-    owner = User(
-        full_name=payload.owner_full_name,
-        designation=payload.owner_designation,
-        personal_email=payload.owner_email,
-        phone=payload.owner_phone,
-        username=payload.username,
-        login_email=payload.owner_email,
-        password_hash=hash_password(payload.password),
-        org_id=org.id,
-        role_id=owner_role.id,
-        status="pending_verification",
-        reset_token=activation_token,
-        reset_token_expires=datetime.utcnow() + timedelta(hours=ACTIVATION_TOKEN_TTL_HOURS),
-    )
-    db.add(owner)
-    db.commit()
+    try:
+        db.add(org)
+        db.flush()
+
+        owner_role = Role(
+            name="Owner",
+            description=(
+                "Full access to every module, including organization and billing "
+                "settings. Cannot be edited or deleted."
+            ),
+            permissions=full_permission_matrix(),
+            is_system=True,
+            org_id=org.id,
+        )
+        db.add(owner_role)
+        db.flush()
+
+        owner = User(
+            full_name=payload.owner_full_name,
+            designation=payload.owner_designation,
+            personal_email=payload.owner_email,
+            phone=payload.owner_phone,
+            username=payload.username,
+            login_email=payload.owner_email,
+            password_hash=hash_password(payload.password),
+            org_id=org.id,
+            role_id=owner_role.id,
+            status="pending_verification",
+            reset_token=activation_token,
+            reset_token_expires=datetime.utcnow() + timedelta(hours=ACTIVATION_TOKEN_TTL_HOURS),
+        )
+        db.add(owner)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "An organization already exists on this deployment, or the username is "
+            "already taken. This platform supports one organization per deployment.",
+        )
     db.refresh(org)
     db.refresh(owner)
     db.refresh(owner_role)

@@ -54,11 +54,15 @@ def client():
     startup. Extend the router list here as later phases add endpoints."""
     from app.api.v1.endpoints import auth as auth_ep
     from app.api.v1.endpoints import organization as org_ep
+    from app.api.v1.endpoints import roles as roles_ep
+    from app.api.v1.endpoints import users as users_ep
 
     test_app = FastAPI()
     test_app.add_middleware(JWTAuthMiddleware)
     test_app.include_router(auth_ep.router)
     test_app.include_router(org_ep.router)
+    test_app.include_router(roles_ep.router)
+    test_app.include_router(users_ep.router)
 
     with TestClient(test_app) as c:
         yield c
@@ -80,3 +84,37 @@ VALID_REGISTER_PAYLOAD = {
     "password": "Str0ng!Passw0rd",
     "confirm_password": "Str0ng!Passw0rd",
 }
+
+
+def register_activate_login(client, payload=None) -> dict:
+    """Full Phase 0 bootstrap, returning the login response body (access_token,
+    refresh_token, role_id, org_id, ...). Shared by every later phase's tests
+    that need an authenticated Owner."""
+    from sqlmodel import select
+
+    from app.db.models import User
+
+    payload = payload or VALID_REGISTER_PAYLOAD
+    resp = client.post("/api/auth/register", json=payload)
+    assert resp.status_code == 201, resp.text
+
+    with Session(get_engine()) as s:
+        user = s.exec(select(User).where(User.username == payload["username"])).first()
+        token = user.reset_token
+    activate = client.post("/api/auth/activate", json={"token": token})
+    assert activate.status_code == 200, activate.text
+
+    login = client.post(
+        "/api/auth/login", json={"username": payload["username"], "password": payload["password"]}
+    )
+    assert login.status_code == 200, login.text
+    return login.json()
+
+
+@pytest.fixture()
+def owner(client) -> dict:
+    """Registers+activates+logs in the default Owner and returns the login
+    body plus a ready-to-use `headers` dict."""
+    body = register_activate_login(client)
+    body["headers"] = {"Authorization": f"Bearer {body['access_token']}"}
+    return body

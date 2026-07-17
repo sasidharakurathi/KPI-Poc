@@ -18,12 +18,12 @@ from .email_log import EmailLogItem, EmailLogsResponse
 from .job import JobStatus, JobStatusResponse, UploadResponse
 from .kpi import KPIInfo, KPISettingsItem, KPISettingsResponse, RegisteredKPIsResponse
 from .organization import OrganizationResponse, OrganizationUpdate
-from .role import RoleCreate, RoleListResponse, RoleResponse, RoleUpdate
+from .role import RoleInput, RoleResponse
 from .settings import (
     EmailSettingsResponse, EmailSettingsUpdate,
     TimezoneSettingsResponse, TimezoneSettingsUpdate,
 )
-from .user import UserCreate, UserListResponse, UserResponse, UserUpdate
+from .user import UserCreateInput, UserPasswordReset, UserResponse, UserStatusUpdate, UserUpdateInput
 
 __all__ = [
     "ActivateRequest", "ChangePasswordRequest", "LoginRequest", "LoginResponse",
@@ -39,8 +39,8 @@ __all__ = [
     "JobStatus", "JobStatusResponse", "UploadResponse",
     "KPIInfo", "KPISettingsItem", "KPISettingsResponse", "RegisteredKPIsResponse",
     "OrganizationResponse", "OrganizationUpdate",
-    "RoleCreate", "RoleListResponse", "RoleResponse", "RoleUpdate",
+    "RoleInput", "RoleResponse",
     "EmailSettingsResponse", "EmailSettingsUpdate",
     "TimezoneSettingsResponse", "TimezoneSettingsUpdate",
-    "UserCreate", "UserListResponse", "UserResponse", "UserUpdate",
+    "UserCreateInput", "UserPasswordReset", "UserResponse", "UserStatusUpdate", "UserUpdateInput",
 ]
