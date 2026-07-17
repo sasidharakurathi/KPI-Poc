@@ -551,7 +551,7 @@
         "infer_imgsz": 640
     },
     "FireSmokeKPI": {
-        "enabled": true,
+        "enabled": false,
         "model_path": "app/models/fire-smoke.pt",
         "smoke_confidence": 0.28,
         "fire_confidence": 0.5,
@@ -564,7 +564,7 @@
         "infer_imgsz": 512
     },
     "MobileUsageKPI": {
-        "enabled": true,
+        "enabled": false,
         "pose_model_path": "app/models/yolo26m-pose.pt",
         "phone_model_path": "app/models/yolo26m.pt",
         "phone_confidence": 0.3,
@@ -591,7 +591,7 @@
         "phone_imgsz": 512
     },
     "PeopleCountKPI": {
-        "enabled": true,
+        "enabled": false,
         "model_path": "app/models/ppl-count-yolo26m.pt",
         "confidence": 0.35,
         "min_box_area": 800,
@@ -616,7 +616,7 @@
         }
     },
     "SmokingKPI": {
-        "enabled": true,
+        "enabled": false,
         "person_model_path": "app/models/yolo26m.pt",
         "cigarette_model_path": "app/models/cigarette.pt",
         "person_confidence": 0.4,
@@ -637,7 +637,7 @@
         "alert_hold_seconds": 4.0
     },
     "PPEKPI": {
-        "enabled": true,
+        "enabled": false,
         "model_path": "app/models/ppe.pt",
         "pose_model_path": "app/models/yolo26s-pose.pt",
         "confidence": 0.25,
@@ -649,7 +649,7 @@
         "infer_imgsz": 512
     },
     "FallingPoseKPI": {
-        "enabled": true,
+        "enabled": false,
         "pose_model_path": "app/models/yolo26m-pose.pt",
         "confidence": 0.3,
         "kp_conf": 0.3,

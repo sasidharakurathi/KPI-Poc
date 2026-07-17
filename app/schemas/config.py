@@ -10,6 +10,15 @@ from pydantic import BaseModel, Field
 class PriorityCreate(BaseModel):
     name: str = Field(min_length=2, max_length=40)
     color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    org_id: Optional[int] = None
+    enabled: bool = True
+
+
+class PriorityUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=40)
+    color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    org_id: Optional[int] = None
+    enabled: Optional[bool] = None
 
 
 class PriorityResponse(BaseModel):
@@ -17,6 +26,7 @@ class PriorityResponse(BaseModel):
     id: int
     name: str
     color: str
+    org_id: Optional[int] = None
     enabled: bool
     created_at: datetime
 
@@ -27,6 +37,16 @@ class ZoneCreate(BaseModel):
     name: str = Field(min_length=2, max_length=60)
     timezone: Optional[str] = None
     description: Optional[str] = Field(default=None, max_length=200)
+    org_id: Optional[int] = None
+    enabled: bool = True
+
+
+class ZoneUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=60)
+    timezone: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=200)
+    org_id: Optional[int] = None
+    enabled: Optional[bool] = None
 
 
 class ZoneResponse(BaseModel):
@@ -35,6 +55,7 @@ class ZoneResponse(BaseModel):
     name: str
     timezone: Optional[str] = None
     description: Optional[str] = None
+    org_id: Optional[int] = None
     enabled: bool
     created_at: datetime
 
@@ -51,6 +72,7 @@ class EmailServerCreate(BaseModel):
     from_address: str
     from_name: str = Field(min_length=2, max_length=60)
     is_default: bool = False
+    org_id: Optional[int] = None
 
 
 class EmailServerUpdate(BaseModel):
@@ -77,6 +99,7 @@ class EmailServerResponse(BaseModel):
     from_name: str
     enabled: bool
     is_default: bool
+    org_id: Optional[int] = None
     password_set: bool = True       # never expose ciphertext
 
 
@@ -86,7 +109,8 @@ class KpiModelCreate(BaseModel):
     name: str = Field(min_length=2, max_length=60)
     model_path: str
     confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
-
+    org_id: Optional[int] = None
+    enabled: bool = True
 
 class KpiModelResponse(BaseModel):
     model_config = {"from_attributes": True}
@@ -94,5 +118,6 @@ class KpiModelResponse(BaseModel):
     name: str
     model_path: str
     confidence_threshold: float
+    org_id: Optional[int] = None
     enabled: bool
     created_at: datetime
