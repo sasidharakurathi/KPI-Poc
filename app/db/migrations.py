@@ -63,10 +63,45 @@ def _migrate_legacy_stream_columns(engine) -> None:
     ])
 
 
+def _migrate_users(engine) -> None:
+    """Phase 0 additions: last_login_at (Roles/Users screens) and mfa_enabled
+    (PRD §2.3 — off by default, not required this phase, but cheap to seed now)."""
+    _add_columns(engine, "users", [
+        ("last_login_at",  "TIMESTAMP", ""),
+        ("mfa_enabled",    "BOOLEAN",   " DEFAULT FALSE"),
+        ("token_version",  "INTEGER",   " DEFAULT 0"),
+    ])
+
+
+def _migrate_roles(engine) -> None:
+    """Some pre-existing databases were created from an earlier, abandoned
+    schema attempt (see the leftover `alembic_version` table) that named this
+    column `role_name` and never had `is_system`/`org_id` at all; the current
+    Role model (app/db/models/role.py) needs all three. Rename + add — safe
+    as a no-op once already applied, and only ever run against a table with
+    no rows referencing the old shape."""
+    inspector = _inspect(engine)
+    if "roles" not in inspector.get_table_names():
+        return
+    columns = {col["name"] for col in inspector.get_columns("roles")}
+    if "role_name" in columns and "name" not in columns:
+        with engine.begin() as conn:
+            conn.execute(_text("ALTER TABLE roles RENAME COLUMN role_name TO name"))
+            logger.info("[migrate] roles.role_name renamed to roles.name")
+
+    _add_columns(engine, "roles", [
+        ("is_system", "BOOLEAN", " DEFAULT FALSE"),
+        ("org_id",    "INTEGER", ""),
+        ("zone_ids",  "JSON",    " DEFAULT '[]'"),
+    ])
+
+
 def run_migrations(engine) -> None:
     """Apply all pending schema changes, then run create_all for new tables."""
     _migrate_legacy_stream_columns(engine)
     _migrate_cameras(engine)
+    _migrate_users(engine)
+    _migrate_roles(engine)
 
     SQLModel.metadata.create_all(engine)
     logger.info("[migrate] all migrations applied")

@@ -8,7 +8,7 @@ class Organization(SQLModel, table=True):
     __tablename__ = "organizations"  # type: ignore[assignment]
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    org_id: str = Field(unique=True, index=True)   # human-readable slug, e.g. "jana-port"
+    org_id: str = Field(unique=True, index=True)   # human-readable slug, e.g. "visionai-port"
     name: str                                       # 2-120 chars
     logo_path: Optional[str] = None
     tagline: Optional[str] = None

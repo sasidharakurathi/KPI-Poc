@@ -27,9 +27,9 @@ class Camera(SQLModel, table=True):
     mode: str = "live"                      # "live" | "2min_clips"
     connectivity_status: str = "pending"   # "active" | "inactive" | "pending"
     enabled: bool = True                    # admin enable/disable toggle
-    org_id: Optional[int] = None           # FK to organizations.id (Phase 0)
-    zone_id: Optional[int] = None          # FK to zones.id (Phase 1)
-    priority_id: Optional[int] = None     # FK to priorities.id (Phase 1)
+    org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
+    zone_id: Optional[int] = Field(default=None, foreign_key="zones.id")
+    priority_id: Optional[int] = Field(default=None, foreign_key="priorities.id")
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -99,7 +99,7 @@ def _build_html(
       <tr>
         <td style="background:{color};padding:28px 32px;">
           <p style="margin:0;color:rgba(255,255,255,0.75);font-size:12px;
-                    letter-spacing:1px;text-transform:uppercase;">JANA Vision AI Monitoring</p>
+                    letter-spacing:1px;text-transform:uppercase;">Vision AI Monitoring</p>
           <h1 style="margin:6px 0 0;color:#FFFFFF;font-size:22px;font-weight:700;
                      line-height:1.3;">{label}</h1>
         </td>
@@ -150,7 +150,7 @@ def _build_html(
       <tr>
         <td style="background:#FAFAFA;padding:18px 32px;border-top:1px solid #EEEEEE;">
           <p style="margin:0;font-size:12px;color:#BDBDBD;text-align:center;">
-            This is an automated alert from JANA Vision AI Monitoring.
+            This is an automated alert from Vision AI Monitoring.
             Job reference: {job_id}
           </p>
         </td>
@@ -174,7 +174,7 @@ def _build_plain(
     label = _humanize(alert_type)
     cam   = camera_name or "Unknown Camera"
     return (
-        f"JANA Vision AI Monitoring\n"
+        f"Vision AI Monitoring\n"
         f"{'=' * 40}\n\n"
         f"Alert:    {label}\n"
         f"KPI:      {display_name}\n"
@@ -242,6 +242,34 @@ def _send(cfg: dict, msg: MIMEMultipart) -> None:
             server.sendmail(cfg["from_address"], cfg["recipients"], msg.as_string())
 
 
+def send_transactional_email(to_addresses: list[str], subject: str, html: str, plain: str) -> None:
+    """Send a one-off account email (activation link, password reset, user
+    onboarding) using the organization's configured SMTP settings.
+
+    Unlike notify_alert(), this is synchronous and raises on failure — Phase 0
+    callers treat it as best-effort (catch, log, continue) since SMTP may not
+    be configured yet at org-registration time.
+    """
+    cfg = get_email_config()
+    if not cfg["smtp_host"] or not cfg["from_address"]:
+        raise RuntimeError(
+            "SMTP is not configured yet — set it up under Settings > Email first."
+        )
+
+    msg = MIMEMultipart("alternative")
+    from_addr = (
+        f"{cfg['from_name']} <{cfg['from_address']}>"
+        if cfg.get("from_name") else cfg["from_address"]
+    )
+    msg["Subject"] = subject
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(to_addresses)
+    msg.attach(MIMEText(plain, "plain"))
+    msg.attach(MIMEText(html, "html"))
+
+    _send({**cfg, "recipients": to_addresses}, msg)
+
+
 def notify_alert(
     kpi_name: str,
     display_name: str,
@@ -294,9 +322,9 @@ def send_test_email(cfg: Optional[dict] = None) -> None:
     """Synchronous send used by the admin UI's test button — raises on failure."""
     cfg       = cfg or get_email_config()
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    subject   = "[Vision AI] Test email — JANA Vision AI Monitoring"
+    subject   = "[Vision AI] Test email"
     plain = (
-        "JANA Vision AI Monitoring\n"
+        "Vision AI Monitoring\n"
         "This is a test email. If you received it, SMTP is configured correctly.\n"
         f"Sent at: {timestamp}"
     )
@@ -312,7 +340,7 @@ def send_test_email(cfg: Optional[dict] = None) -> None:
       <tr>
         <td style="background:#1A237E;padding:28px 32px;">
           <p style="margin:0;color:rgba(255,255,255,0.75);font-size:12px;
-                    letter-spacing:1px;text-transform:uppercase;">JANA Vision AI Monitoring</p>
+                    letter-spacing:1px;text-transform:uppercase;">Vision AI Monitoring</p>
           <h1 style="margin:6px 0 0;color:#FFFFFF;font-size:22px;font-weight:700;">
             Email Configuration Test</h1>
         </td>
@@ -329,7 +357,7 @@ def send_test_email(cfg: Optional[dict] = None) -> None:
       <tr>
         <td style="background:#FAFAFA;padding:18px 32px;border-top:1px solid #EEEEEE;">
           <p style="margin:0;font-size:12px;color:#BDBDBD;text-align:center;">
-            This is an automated message from JANA Vision AI Monitoring.</p>
+            This is an automated message from Vision AI Monitoring.</p>
         </td>
       </tr>
     </table>

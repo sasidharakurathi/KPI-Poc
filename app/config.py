@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Symmetric key for encrypting the SMTP password at rest (see .env.example)
     EMAIL_ENCRYPTION_KEY: Optional[str] = None
 
+    # Base URL this backend is reachable at — used to build links in outgoing
+    # account emails (activation, etc.). Not the frontend's URL.
+    PUBLIC_BASE_URL: str = "http://localhost:8000"
+
     # ── JWT / Auth ──────────────────────────────────────────────────────────
     JWT_AUTH_ENABLED: bool = False
     JWT_SECRET_KEY: Optional[str] = None
