@@ -121,6 +121,44 @@ def _migrate_priorities(engine) -> None:
     ])
 
 
+def _migrate_alerts(engine) -> None:
+    """Phase 4: adds alerts.camera_id (direct FK) and relaxes job_id/frame_idx
+    to nullable — the camera-offline heartbeat monitor creates connectivity
+    alerts with no underlying video-processing job and no frame. Backfills
+    camera_id from the existing job_id join for every pre-existing row, so
+    REST/websocket zone-scoping can filter on Alert.camera_id directly
+    without joining Job at query time.
+
+    The nullability relax only runs on Postgres — SQLite (pytest's throwaway
+    DB) always gets a fresh, already-nullable schema via create_all, so
+    there's nothing to alter there."""
+    inspector = _inspect(engine)
+    if "alerts" not in inspector.get_table_names():
+        return
+
+    _add_columns(engine, "alerts", [
+        ("camera_id", "VARCHAR", ""),
+    ])
+
+    if engine.dialect.name == "postgresql":
+        fresh_columns = {col["name"]: col for col in _inspect(engine).get_columns("alerts")}
+        with engine.begin() as conn:
+            if fresh_columns.get("job_id", {}).get("nullable") is False:
+                conn.execute(_text("ALTER TABLE alerts ALTER COLUMN job_id DROP NOT NULL"))
+                logger.info("[migrate] alerts.job_id relaxed to nullable")
+            if fresh_columns.get("frame_idx", {}).get("nullable") is False:
+                conn.execute(_text("ALTER TABLE alerts ALTER COLUMN frame_idx DROP NOT NULL"))
+                logger.info("[migrate] alerts.frame_idx relaxed to nullable")
+
+    if "jobs" in inspector.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(_text(
+                "UPDATE alerts SET camera_id = ("
+                "  SELECT jobs.camera_id FROM jobs WHERE jobs.job_id = alerts.job_id"
+                ") WHERE alerts.camera_id IS NULL AND alerts.job_id IS NOT NULL"
+            ))
+
+
 def _backfill_camera_org_id(engine) -> None:
     """Cameras are seeded from config.json at every startup (see
     app.db.seed_cameras) and predate any org concept, so existing rows have
@@ -138,6 +176,15 @@ def _backfill_camera_org_id(engine) -> None:
             conn.execute(_text("UPDATE cameras SET org_id = 1 WHERE org_id IS NULL"))
 
 
+def _migrate_audit_logs(engine) -> None:
+    """Adds summary — a human-readable one-liner (e.g. 'Created camera
+    "CAM-01".'), matching the frontend's AuditLogEntry.summary field, which
+    the original entity_type/entity_name/before/after shape didn't cover."""
+    _add_columns(engine, "audit_logs", [
+        ("summary", "VARCHAR", ""),
+    ])
+
+
 def run_migrations(engine) -> None:
     """Apply all pending schema changes, then run create_all for new tables."""
     _migrate_legacy_stream_columns(engine)
@@ -148,6 +195,8 @@ def run_migrations(engine) -> None:
     _migrate_zones(engine)
     _migrate_priorities(engine)
     _backfill_camera_org_id(engine)
+    _migrate_alerts(engine)
+    _migrate_audit_logs(engine)
 
     SQLModel.metadata.create_all(engine)
     logger.info("[migrate] all migrations applied")

@@ -136,6 +136,32 @@ def test_update_zone_can_change_timezone(client, owner):
     assert resp.json()["timezone_id"] == "2"
 
 
+def test_zone_camera_counts(client, owner):
+    zone_with_cameras = client.post("/api/config/zones", headers=owner["headers"], json={"name": "Counted Zone"}).json()
+    zone_empty = client.post("/api/config/zones", headers=owner["headers"], json={"name": "Empty Zone"}).json()
+    priority = client.post(
+        "/api/config/priorities", headers=owner["headers"],
+        json={"name": "Count Pri", "color": "#123456"},
+    ).json()
+
+    for cam_id in ("CAM-CNT1", "CAM-CNT2"):
+        resp = client.post(
+            "/api/cameras", headers=owner["headers"],
+            json={"camera_id": cam_id, "name": cam_id, "zone_id": str(zone_with_cameras["id"]), "priority_id": str(priority["id"])},
+        )
+        assert resp.status_code == 201, resp.text
+
+    resp = client.get("/api/config/zones/camera-counts", headers=owner["headers"])
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body[str(zone_with_cameras["id"])] == 2
+    assert str(zone_empty["id"]) not in body
+
+
+def test_zone_camera_counts_requires_auth(client):
+    assert client.get("/api/config/zones/camera-counts").status_code == 401
+
+
 # ── Email Servers ───────────────────────────────────────────────────────────
 
 def test_email_servers_require_auth(client):

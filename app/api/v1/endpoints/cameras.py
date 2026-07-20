@@ -51,7 +51,7 @@ async def create_camera(
     db: DbSession,
     user: dict = Depends(require_permission("cameras", "create")),
 ):
-    return camera_service.create_camera(db, user.get("org_id"), body)
+    return camera_service.create_camera(db, user, body)
 
 
 @router.put("/{camera_id}", response_model=CameraResponse)
@@ -61,7 +61,7 @@ async def update_camera(
     db: DbSession,
     user: dict = Depends(require_permission("cameras", "edit")),
 ):
-    return camera_service.update_camera(db, user.get("org_id"), camera_id, body)
+    return camera_service.update_camera(db, user, camera_id, body)
 
 
 @router.delete("/{camera_id}", status_code=204)
@@ -70,4 +70,4 @@ async def delete_camera(
     db: DbSession,
     user: dict = Depends(require_permission("cameras", "delete")),
 ):
-    camera_service.delete_camera(db, user.get("org_id"), camera_id)
+    camera_service.delete_camera(db, user, camera_id)

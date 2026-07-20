@@ -25,7 +25,13 @@ from app.schemas.camera import (
     CameraCreate, CameraKPIDetail, CameraListItem,
     CameraListResponse, CameraResponse, CameraUpdate,
 )
+from app.services import audit_service
 from app.stream_recorder import stream_recorder_manager
+
+
+def _actor(user: dict) -> tuple[Optional[int], Optional[str]]:
+    sub = user.get("sub")
+    return (int(sub) if sub is not None else None), user.get("username")
 
 _KPI_LABELS: dict[int, str] = {
     1: "Unauthorized Access",          2: "ANPR Detection",
@@ -160,7 +166,8 @@ def get_camera(db: Session, org_id: Optional[int], camera_id: str) -> CameraResp
     return _to_camera_response(db, cam)
 
 
-def create_camera(db: Session, org_id: Optional[int], payload: CameraCreate) -> CameraResponse:
+def create_camera(db: Session, user: dict, payload: CameraCreate) -> CameraResponse:
+    org_id = user.get("org_id")
     if db.get(Camera, payload.camera_id):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Camera '{payload.camera_id}' already exists.")
 
@@ -198,10 +205,19 @@ def create_camera(db: Session, org_id: Optional[int], payload: CameraCreate) -> 
         raise HTTPException(status.HTTP_409_CONFLICT, f"Camera '{payload.camera_id}' already exists.")
 
     stream_recorder_manager.sync_camera(cam.camera_id)
+
+    actor_id, actor_name = _actor(user)
+    audit_service.log_action(
+        db, entity="camera", entity_id=cam.camera_id, entity_label=cam.name,
+        action="create", summary=f'Created camera "{cam.name}" ({cam.camera_id}).',
+        actor_id=actor_id, actor_name=actor_name,
+    )
+
     return _to_camera_response(db, cam)
 
 
-def update_camera(db: Session, org_id: Optional[int], camera_id: str, payload: CameraUpdate) -> CameraResponse:
+def update_camera(db: Session, user: dict, camera_id: str, payload: CameraUpdate) -> CameraResponse:
+    org_id = user.get("org_id")
     cam = db.get(Camera, camera_id)
     if cam is None or cam.org_id != org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Camera '{camera_id}' not found.")
@@ -234,13 +250,27 @@ def update_camera(db: Session, org_id: Optional[int], camera_id: str, payload: C
         raise HTTPException(status.HTTP_409_CONFLICT, "Database constraint violation while updating camera.")
 
     stream_recorder_manager.sync_camera(camera_id)
+
+    actor_id, actor_name = _actor(user)
+    if payload.status is not None:
+        action, verb = ("enable", "Activated") if payload.status == "active" else ("disable", "Deactivated")
+        summary = f'{verb} camera "{cam.name}" ({cam.camera_id}).'
+    else:
+        action, summary = "update", f'Updated camera "{cam.name}" ({cam.camera_id}).'
+    audit_service.log_action(
+        db, entity="camera", entity_id=cam.camera_id, entity_label=cam.name,
+        action=action, summary=summary, actor_id=actor_id, actor_name=actor_name,
+    )
+
     return _to_camera_response(db, cam)
 
 
-def delete_camera(db: Session, org_id: Optional[int], camera_id: str) -> None:
+def delete_camera(db: Session, user: dict, camera_id: str) -> None:
+    org_id = user.get("org_id")
     cam = db.get(Camera, camera_id)
     if cam is None or cam.org_id != org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Camera '{camera_id}' not found.")
+    cam_name = cam.name
 
     db.delete(cam)
     try:
@@ -250,3 +280,10 @@ def delete_camera(db: Session, org_id: Optional[int], camera_id: str) -> None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Database constraint violation while deleting camera.")
 
     stream_recorder_manager.sync_camera(camera_id)
+
+    actor_id, actor_name = _actor(user)
+    audit_service.log_action(
+        db, entity="camera", entity_id=camera_id, entity_label=cam_name,
+        action="delete", summary=f'Deleted camera "{cam_name}" ({camera_id}).',
+        actor_id=actor_id, actor_name=actor_name,
+    )

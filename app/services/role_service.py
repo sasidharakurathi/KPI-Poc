@@ -11,6 +11,12 @@ from sqlmodel import Session, select
 
 from app.db.models import EmailServer, Role, User, Zone
 from app.schemas.role import RoleInput, RoleResponse
+from app.services import audit_service
+
+
+def _actor(user: dict) -> tuple[Optional[int], Optional[str]]:
+    sub = user.get("sub")
+    return (int(sub) if sub is not None else None), user.get("username")
 
 
 def _to_int_id(raw: Optional[str], field_name: str) -> Optional[int]:
@@ -84,7 +90,8 @@ def _validate_references(db: Session, org_id: Optional[int], payload: RoleInput)
     return email_server_id, zone_ids
 
 
-def create_role(db: Session, org_id: Optional[int], payload: RoleInput) -> RoleResponse:
+def create_role(db: Session, user: dict, payload: RoleInput) -> RoleResponse:
+    org_id = user.get("org_id")
     name = payload.name.strip()
     existing = db.exec(select(Role).where(Role.org_id == org_id)).all()
     if any(r.name.strip().lower() == name.lower() for r in existing):
@@ -110,10 +117,19 @@ def create_role(db: Session, org_id: Optional[int], payload: RoleInput) -> RoleR
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, f'A role named "{name}" already exists.')
     db.refresh(role)
+
+    actor_id, actor_name = _actor(user)
+    audit_service.log_action(
+        db, entity="role", entity_id=str(role.id), entity_label=role.name,
+        action="create", summary=f'Created role "{role.name}".',
+        actor_id=actor_id, actor_name=actor_name,
+    )
+
     return _to_role_response(role)
 
 
-def update_role(db: Session, org_id: Optional[int], role_id: int, payload: RoleInput) -> RoleResponse:
+def update_role(db: Session, user: dict, role_id: int, payload: RoleInput) -> RoleResponse:
+    org_id = user.get("org_id")
     role = db.get(Role, role_id)
     if role is None or role.org_id != org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Role not found.")
@@ -139,10 +155,19 @@ def update_role(db: Session, org_id: Optional[int], role_id: int, payload: RoleI
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, f'A role named "{name}" already exists.')
     db.refresh(role)
+
+    actor_id, actor_name = _actor(user)
+    audit_service.log_action(
+        db, entity="role", entity_id=str(role.id), entity_label=role.name,
+        action="update", summary=f'Updated role "{role.name}".',
+        actor_id=actor_id, actor_name=actor_name,
+    )
+
     return _to_role_response(role)
 
 
-def delete_role(db: Session, org_id: Optional[int], role_id: int) -> None:
+def delete_role(db: Session, user: dict, role_id: int) -> None:
+    org_id = user.get("org_id")
     role = db.get(Role, role_id)
     if role is None or role.org_id != org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Role not found.")
@@ -160,5 +185,13 @@ def delete_role(db: Session, org_id: Optional[int], role_id: int) -> None:
             "This role still has users assigned to it. Reassign those users first.",
         )
 
+    role_name = role.name
     db.delete(role)
     db.commit()
+
+    actor_id, actor_name = _actor(user)
+    audit_service.log_action(
+        db, entity="role", entity_id=str(role_id), entity_label=role_name,
+        action="delete", summary=f'Deleted role "{role_name}".',
+        actor_id=actor_id, actor_name=actor_name,
+    )

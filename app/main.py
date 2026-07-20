@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -11,6 +12,8 @@ from .config import settings
 from .config_loader import get_cameras as get_seed_cameras, get_kpi_config, get_kpi_param, get_kpi_registry
 from .db import init_db, seed_cameras, get_config, set_config
 from .model_registry import preload_all
+from .services import camera_heartbeat
+from .services.ws_manager import ws_manager
 from .stream_recorder import stream_recorder_manager
 
 logging.basicConfig(level=logging.INFO)
@@ -68,8 +71,13 @@ async def lifespan(_app: FastAPI):
     stream_recorder_manager.start_all()
     logger.info("[startup] clip processor + IP camera recorders started")
 
+    ws_manager.bind_loop(asyncio.get_running_loop())
+    heartbeat_task = asyncio.create_task(camera_heartbeat.run_forever())
+    logger.info("[startup] realtime websocket + camera-offline heartbeat monitor started")
+
     yield
 
+    heartbeat_task.cancel()
     stream_recorder_manager.stop_all()
     clip_processor.stop()
 

@@ -46,23 +46,47 @@ __all__ = [
 # ── Write helpers ─────────────────────────────────────────────────────────────
 
 def create_alert(
-    job_id: str,
-    kpi_name: str,
-    alert_type: str,
-    frame_idx: int,
+    job_id: Optional[str] = None,
+    kpi_name: str = "",
+    alert_type: str = "",
+    frame_idx: Optional[int] = None,
     confidence: float = 1.0,
     extra: Optional[dict] = None,
+    camera_id: Optional[str] = None,
 ) -> int:
+    """camera_id is auto-resolved from the job when omitted (the normal case
+    for video-detection alerts). Pass it explicitly for alerts with no job at
+    all — e.g. app.services.camera_heartbeat's connectivity alerts.
+
+    Broadcasts 'alert.created' over the realtime websocket (Phase 4) after
+    committing — best-effort, never allowed to fail the alert itself."""
     with get_session_ctx() as session:
+        resolved_camera_id = camera_id
+        if resolved_camera_id is None and job_id:
+            job = session.get(Job, job_id)
+            resolved_camera_id = job.camera_id if job else None
+
         alert = Alert(
-            job_id=job_id, kpi_name=kpi_name, alert_type=alert_type,
+            job_id=job_id, camera_id=resolved_camera_id,
+            kpi_name=kpi_name, alert_type=alert_type,
             frame_idx=frame_idx, confidence=confidence, extra=extra,
             created_at=datetime.utcnow(),
         )
         session.add(alert)
         session.commit()
         session.refresh(alert)
-        return alert.id  # type: ignore[return-value]
+        alert_dict = _alert_to_dict(alert, session)
+
+    try:
+        from app.services.ws_manager import ws_manager
+        from app.schemas.alert import AlertResponse
+
+        payload = AlertResponse.model_validate(alert_dict).model_dump(mode="json")
+        ws_manager.broadcast_threadsafe("alert.created", payload, camera_id=resolved_camera_id)
+    except Exception:
+        logger.exception("[db] failed to broadcast alert.created for alert %s", alert.id)
+
+    return alert.id  # type: ignore[return-value]
 
 
 def add_alert_frames(
@@ -361,12 +385,15 @@ def _alert_to_dict(alert: Alert, session: Session) -> dict:
         .where(AlertFrame.alert_id == alert.id)
         .order_by(AlertFrame.position)  # type: ignore[arg-type]
     ).all()
-    job = session.get(Job, alert.job_id)
+    # camera_name comes from the live Camera row (not a snapshot frozen on the
+    # Job at upload time), matching how zone_name/priority_name etc. are
+    # always resolved live elsewhere in this app.
+    camera = session.get(Camera, alert.camera_id) if alert.camera_id else None
     return {
         "id": alert.id,
         "job_id": alert.job_id,
-        "camera_id": job.camera_id if job else None,
-        "camera_name": job.camera_name if job else None,
+        "camera_id": alert.camera_id,
+        "camera_name": camera.name if camera else None,
         "kpi_name": alert.kpi_name,
         "alert_type": alert.alert_type,
         "frame_idx": alert.frame_idx,
@@ -405,16 +432,23 @@ def query_alerts(
     sort_dir: str = "desc",
     limit: int = 200,
     offset: int = 0,
+    allowed_camera_ids: Optional[set[str]] = None,
 ) -> tuple[list[dict], int]:
+    """allowed_camera_ids: None = unrestricted (default, preserves existing
+    behavior for every caller that doesn't pass it — e.g. videos.py). A
+    non-None set restricts results to alerts whose camera_id is in it —
+    Phase 4's zone-scoping (see app.services.alert_service), which also means
+    camera-less alerts are excluded whenever a restriction is active."""
     with get_session_ctx() as session:
         stmt = select(Alert)
         count_stmt = select(_func.count()).select_from(Alert)
 
         if camera_id:
-            stmt = stmt.join(Job, Job.job_id == Alert.job_id)  # type: ignore[arg-type]
-            count_stmt = count_stmt.join(Job, Job.job_id == Alert.job_id)  # type: ignore[arg-type]
-            stmt = stmt.where(Job.camera_id == camera_id)
-            count_stmt = count_stmt.where(Job.camera_id == camera_id)
+            stmt = stmt.where(Alert.camera_id == camera_id)
+            count_stmt = count_stmt.where(Alert.camera_id == camera_id)
+        if allowed_camera_ids is not None:
+            stmt = stmt.where(Alert.camera_id.in_(allowed_camera_ids))
+            count_stmt = count_stmt.where(Alert.camera_id.in_(allowed_camera_ids))
         if job_id:
             stmt = stmt.where(Alert.job_id == job_id)
             count_stmt = count_stmt.where(Alert.job_id == job_id)

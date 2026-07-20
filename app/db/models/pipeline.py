@@ -27,10 +27,16 @@ class Alert(SQLModel, table=True):
     __tablename__ = "alerts"  # type: ignore[assignment]
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    job_id: str = Field(foreign_key="jobs.job_id", index=True)
+    # Nullable: Phase 4's camera-offline heartbeat monitor creates connectivity
+    # alerts with no underlying video-processing job. camera_id is the direct,
+    # always-populated link those alerts use (and is backfilled for existing
+    # video-detection alerts too, from their job's camera_id) — see
+    # app.db.create_alert and app.services.camera_heartbeat.
+    job_id: Optional[str] = Field(default=None, foreign_key="jobs.job_id", index=True)
+    camera_id: Optional[str] = Field(default=None, foreign_key="cameras.camera_id", index=True)
     kpi_name: str
     alert_type: str
-    frame_idx: int
+    frame_idx: Optional[int] = None  # no frame for a connectivity alert
     confidence: float = 1.0
     extra: Optional[dict] = Field(default=None, sa_column=Column(_JSON))
     created_at: datetime = Field(default_factory=datetime.utcnow)

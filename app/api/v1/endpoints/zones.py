@@ -2,6 +2,8 @@
 
 Implements:
   GET    /api/config/zones
+  GET    /api/config/zones/camera-counts   {zone_id: camera_count}, registered
+                                            before /{id} so it isn't shadowed
   POST   /api/config/zones
   PUT    /api/config/zones/{id}
   DELETE /api/config/zones/{id}   (only when no cameras reference it)
@@ -57,6 +59,27 @@ async def list_zones(
         select(Zone).where(Zone.org_id == user.get("org_id")).order_by(Zone.id)
     ).all()
     return [_to_zone_response(zone) for zone in zones]
+
+
+@router.get("/camera-counts", response_model=dict[str, int], summary="Zone Camera Counts")
+async def zone_camera_counts(
+    session: DbSession,
+    user: dict = Depends(require_permission("configuration", "view")),
+):
+    """Camera count per zone, for the caller's org — Record<zone_id, count>,
+    keyed by zone_id as a string. Zones with no cameras simply don't appear
+    (matching the frontend's own accumulate-as-you-go mock behavior); cameras
+    with no zone assigned yet aren't counted anywhere."""
+    from app.db.models.camera import Camera
+
+    cameras = session.exec(
+        select(Camera).where(Camera.org_id == user.get("org_id"), Camera.zone_id.is_not(None))
+    ).all()
+    counts: dict[str, int] = {}
+    for cam in cameras:
+        key = str(cam.zone_id)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 @router.post("", response_model=ZoneResponse, status_code=201, summary="Create Zone")

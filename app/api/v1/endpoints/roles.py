@@ -55,7 +55,7 @@ def create_role(
     db: DbSession,
     user: dict = Depends(require_permission("roles", "create")),
 ) -> RoleResponse:
-    return role_service.create_role(db, user.get("org_id"), payload)
+    return role_service.create_role(db, user, payload)
 
 
 @router.put("/{role_id}", response_model=RoleResponse)
@@ -65,7 +65,7 @@ def update_role(
     db: DbSession,
     user: dict = Depends(require_permission("roles", "edit")),
 ) -> RoleResponse:
-    return role_service.update_role(db, user.get("org_id"), role_id, payload)
+    return role_service.update_role(db, user, role_id, payload)
 
 
 @router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -74,4 +74,4 @@ def delete_role(
     db: DbSession,
     user: dict = Depends(require_permission("roles", "delete")),
 ) -> None:
-    role_service.delete_role(db, user.get("org_id"), role_id)
+    role_service.delete_role(db, user, role_id)

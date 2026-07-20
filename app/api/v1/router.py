@@ -19,6 +19,7 @@ from .endpoints import (
     timezones,
     users,
     videos,
+    ws,
     zones,
 )
 
@@ -45,3 +46,4 @@ api_router.include_router(roles.router)          # Phase 6
 api_router.include_router(users.router)          # Phase 7
 api_router.include_router(dashboard.router)      # Phase 5
 api_router.include_router(audit.router)          # Phase 8
+api_router.include_router(ws.router)             # Phase 4 (realtime websocket)

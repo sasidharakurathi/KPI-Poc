@@ -28,3 +28,4 @@ bcrypt
 PyJWT
 pdfplumber
 email-validator
+reportlab

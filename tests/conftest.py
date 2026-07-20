@@ -82,8 +82,11 @@ def db_session():
 def client():
     """Minimal app: JWT middleware + the routers under test, no ML/RTSP
     startup. Extend the router list here as later phases add endpoints."""
+    from app.api.v1.endpoints import alerts as alerts_ep
+    from app.api.v1.endpoints import audit as audit_ep
     from app.api.v1.endpoints import auth as auth_ep
     from app.api.v1.endpoints import cameras as cameras_ep
+    from app.api.v1.endpoints import dashboard as dashboard_ep
     from app.api.v1.endpoints import email_servers as email_servers_ep
     from app.api.v1.endpoints import kpi_models as kpi_models_ep
     from app.api.v1.endpoints import organization as org_ep
@@ -91,6 +94,7 @@ def client():
     from app.api.v1.endpoints import roles as roles_ep
     from app.api.v1.endpoints import timezones as timezones_ep
     from app.api.v1.endpoints import users as users_ep
+    from app.api.v1.endpoints import ws as ws_ep
     from app.api.v1.endpoints import zones as zones_ep
 
     test_app = FastAPI()
@@ -105,6 +109,10 @@ def client():
     test_app.include_router(kpi_models_ep.router)
     test_app.include_router(timezones_ep.router)
     test_app.include_router(cameras_ep.router)
+    test_app.include_router(alerts_ep.router)
+    test_app.include_router(dashboard_ep.router)
+    test_app.include_router(audit_ep.router)
+    test_app.include_router(ws_ep.router)
 
     with TestClient(test_app) as c:
         yield c

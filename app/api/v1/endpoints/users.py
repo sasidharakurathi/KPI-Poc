@@ -53,7 +53,7 @@ def create_user(
     db: DbSession,
     user: dict = Depends(require_permission("users", "create")),
 ) -> UserResponse:
-    return user_service.create_user(db, user.get("org_id"), payload)
+    return user_service.create_user(db, user, payload)
 
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -63,7 +63,7 @@ def update_user(
     db: DbSession,
     user: dict = Depends(require_permission("users", "edit")),
 ) -> UserResponse:
-    return user_service.update_user(db, user.get("org_id"), user_id, payload)
+    return user_service.update_user(db, user, user_id, payload)
 
 
 @router.patch("/{user_id}/status", response_model=UserResponse)
@@ -73,7 +73,7 @@ def set_user_status(
     db: DbSession,
     user: dict = Depends(require_permission("users", "edit")),
 ) -> UserResponse:
-    return user_service.set_status(db, user.get("org_id"), user_id, payload.status)
+    return user_service.set_status(db, user, user_id, payload.status)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -82,7 +82,7 @@ def delete_user(
     db: DbSession,
     user: dict = Depends(require_permission("users", "delete")),
 ) -> None:
-    user_service.soft_delete_user(db, user.get("org_id"), user_id)
+    user_service.soft_delete_user(db, user, user_id)
 
 
 @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
@@ -92,4 +92,4 @@ def reset_user_password(
     db: DbSession,
     user: dict = Depends(require_permission("users", "edit")),
 ) -> None:
-    user_service.reset_password(db, user.get("org_id"), user_id, payload.new_password)
+    user_service.reset_password(db, user, user_id, payload.new_password)

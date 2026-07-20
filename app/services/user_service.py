@@ -14,10 +14,16 @@ from sqlmodel import Session, select
 from app.core.security import hash_password
 from app.db.models import Role, User
 from app.schemas.user import UserCreateInput, UserResponse, UserUpdateInput
+from app.services import audit_service
 from app.services.auth_service import revoke_all_sessions
 from app.services.role_service import _to_int_id
 
 logger = logging.getLogger(__name__)
+
+
+def _actor(user: dict) -> tuple[Optional[int], Optional[str]]:
+    sub = user.get("sub")
+    return (int(sub) if sub is not None else None), user.get("username")
 
 # Backend status -> frontend status (AppUser.status: 'active'|'inactive'|'deleted').
 # "pending_verification" only ever applies to the Phase 0 org-owner sign-up
@@ -101,13 +107,14 @@ def _check_email_unique(
         raise HTTPException(status.HTTP_409_CONFLICT, f'Email "{email}" is already in use.')
 
 
-def create_user(db: Session, org_id: Optional[int], payload: UserCreateInput) -> UserResponse:
+def create_user(db: Session, caller: dict, payload: UserCreateInput) -> UserResponse:
     # Checked first, before touching anything else: onboarding a user always
     # sends them an email, so there's no point validating the rest of the
     # payload if there's nowhere to send it from. User-initiated action after
     # signup -> hard-fails per app.services.email_service's contract.
     from app.services.email_service import get_default_email_server
 
+    org_id = caller.get("org_id")
     email_server = get_default_email_server(db, org_id)
 
     username = payload.username.strip()
@@ -144,6 +151,14 @@ def create_user(db: Session, org_id: Optional[int], payload: UserCreateInput) ->
     db.refresh(user)
 
     _send_onboarding_emails(db, org_id, email_server, user, payload.password)
+
+    actor_id, actor_name = _actor(caller)
+    audit_service.log_action(
+        db, entity="user", entity_id=str(user.id), entity_label=user.full_name,
+        action="create", summary=f'Created user "{user.full_name}" ({user.username}).',
+        actor_id=actor_id, actor_name=actor_name,
+    )
+
     return _to_user_response(user)
 
 
@@ -195,7 +210,8 @@ def _send_onboarding_emails(db: Session, org_id: Optional[int], server, user: Us
         logger.warning("[users] could not send onboarding confirmation to admins")
 
 
-def update_user(db: Session, org_id: Optional[int], user_id: int, payload: UserUpdateInput) -> UserResponse:
+def update_user(db: Session, caller: dict, user_id: int, payload: UserUpdateInput) -> UserResponse:
+    org_id = caller.get("org_id")
     user = db.get(User, user_id)
     if user is None or user.org_id != org_id or user.status == "soft_deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found.")
@@ -223,10 +239,19 @@ def update_user(db: Session, org_id: Optional[int], user_id: int, payload: UserU
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, f'Email "{payload.email}" is already in use.')
     db.refresh(user)
+
+    actor_id, actor_name = _actor(caller)
+    audit_service.log_action(
+        db, entity="user", entity_id=str(user.id), entity_label=user.full_name,
+        action="update", summary=f'Updated user "{user.full_name}" ({user.username}).',
+        actor_id=actor_id, actor_name=actor_name,
+    )
+
     return _to_user_response(user)
 
 
-def set_status(db: Session, org_id: Optional[int], user_id: int, frontend_status: str) -> UserResponse:
+def set_status(db: Session, caller: dict, user_id: int, frontend_status: str) -> UserResponse:
+    org_id = caller.get("org_id")
     user = db.get(User, user_id)
     if user is None or user.org_id != org_id or user.status == "soft_deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found.")
@@ -245,10 +270,20 @@ def set_status(db: Session, org_id: Optional[int], user_id: int, frontend_status
     if backend_status == "disabled":
         # PRD: "Disable: blocks login immediately and revokes any active session."
         revoke_all_sessions(db, user)
+
+    actor_id, actor_name = _actor(caller)
+    action, verb = ("disable", "Disabled") if backend_status == "disabled" else ("enable", "Enabled")
+    audit_service.log_action(
+        db, entity="user", entity_id=str(user.id), entity_label=user.full_name,
+        action=action, summary=f'{verb} user "{user.full_name}" ({user.username}).',
+        actor_id=actor_id, actor_name=actor_name,
+    )
+
     return _to_user_response(user)
 
 
-def soft_delete_user(db: Session, org_id: Optional[int], user_id: int) -> None:
+def soft_delete_user(db: Session, caller: dict, user_id: int) -> None:
+    org_id = caller.get("org_id")
     user = db.get(User, user_id)
     if user is None or user.org_id != org_id or user.status == "soft_deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found.")
@@ -260,13 +295,22 @@ def soft_delete_user(db: Session, org_id: Optional[int], user_id: int) -> None:
             "At least one active Administrator must remain — cannot delete the last admin.",
         )
 
+    user_full_name, user_username = user.full_name, user.username
     user.status = "soft_deleted"
     db.add(user)
     db.commit()
     revoke_all_sessions(db, user)  # PRD: "permanently loses access"
 
+    actor_id, actor_name = _actor(caller)
+    audit_service.log_action(
+        db, entity="user", entity_id=str(user_id), entity_label=user_full_name,
+        action="delete", summary=f'Deleted user "{user_full_name}" ({user_username}).',
+        actor_id=actor_id, actor_name=actor_name,
+    )
 
-def reset_password(db: Session, org_id: Optional[int], user_id: int, new_password: str) -> None:
+
+def reset_password(db: Session, caller: dict, user_id: int, new_password: str) -> None:
+    org_id = caller.get("org_id")
     user = db.get(User, user_id)
     if user is None or user.org_id != org_id or user.status == "soft_deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found.")
@@ -276,3 +320,10 @@ def reset_password(db: Session, org_id: Optional[int], user_id: int, new_passwor
     db.add(user)
     db.commit()
     revoke_all_sessions(db, user)  # a password reset should kill any live sessions too
+
+    actor_id, actor_name = _actor(caller)
+    audit_service.log_action(
+        db, entity="user", entity_id=str(user_id), entity_label=user.full_name,
+        action="update", summary=f'Reset password for user "{user.full_name}" ({user.username}).',
+        actor_id=actor_id, actor_name=actor_name,
+    )
