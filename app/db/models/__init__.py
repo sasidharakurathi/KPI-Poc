@@ -8,6 +8,7 @@ from .camera import Camera
 from .configuration import Configuration
 from .email_log import EmailLog
 from .audit import AuditLog
+from .kpi_configuration import KPIConfiguration
 
 __all__ = [
     "EmailServer", "KpiModelCatalog", "Priority", "Timezone", "Zone",
@@ -19,4 +20,5 @@ __all__ = [
     "Configuration",
     "EmailLog",
     "AuditLog",
+    "KPIConfiguration"
 ]
