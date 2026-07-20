@@ -1,4 +1,14 @@
+"""KPI detection alert emails — reads SMTP config from the legacy
+Configuration table (key "email", managed via /api/settings/email), which is
+tied to the video pipeline and out of scope for this PRD phase (see PRD
+Cross-Cutting Notes: "the existing GPU/CPU-flexible inference pipeline is
+unaffected by this phase").
 
+This is a SEPARATE system from account/transactional email (activation,
+password reset, user onboarding) — those all go through
+app.services.email_service, backed by the EmailServer table instead. Do not
+add new callers here for anything account-related.
+"""
 import logging
 import smtplib
 import ssl
@@ -240,34 +250,6 @@ def _send(cfg: dict, msg: MIMEMultipart) -> None:
             if cfg["smtp_username"]:
                 server.login(cfg["smtp_username"], password)
             server.sendmail(cfg["from_address"], cfg["recipients"], msg.as_string())
-
-
-def send_transactional_email(to_addresses: list[str], subject: str, html: str, plain: str) -> None:
-    """Send a one-off account email (activation link, password reset, user
-    onboarding) using the organization's configured SMTP settings.
-
-    Unlike notify_alert(), this is synchronous and raises on failure — Phase 0
-    callers treat it as best-effort (catch, log, continue) since SMTP may not
-    be configured yet at org-registration time.
-    """
-    cfg = get_email_config()
-    if not cfg["smtp_host"] or not cfg["from_address"]:
-        raise RuntimeError(
-            "SMTP is not configured yet — set it up under Settings > Email first."
-        )
-
-    msg = MIMEMultipart("alternative")
-    from_addr = (
-        f"{cfg['from_name']} <{cfg['from_address']}>"
-        if cfg.get("from_name") else cfg["from_address"]
-    )
-    msg["Subject"] = subject
-    msg["From"] = from_addr
-    msg["To"] = ", ".join(to_addresses)
-    msg.attach(MIMEText(plain, "plain"))
-    msg.attach(MIMEText(html, "html"))
-
-    _send({**cfg, "recipients": to_addresses}, msg)
 
 
 def notify_alert(

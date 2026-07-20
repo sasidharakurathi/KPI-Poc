@@ -41,11 +41,19 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: OrgRegisterRequest, db: DbSession) -> RegisterResponse:
-    org, owner, _role = auth_service.register_organization(db, payload)
+    org, owner, _role, email_sent = auth_service.register_organization(db, payload)
+    message = (
+        "Organization created. Check the owner's email for an activation link."
+        if email_sent else
+        "Organization created, but no default email server is configured for this "
+        "deployment — the activation link could not be emailed. Add a default email "
+        "server under Configuration, or fetch the activation token directly."
+    )
     return RegisterResponse(
         organization_name=org.name,
         username=owner.username,
-        message="Organization created. Check the owner's email for an activation link.",
+        message=message,
+        activation_email_sent=email_sent,
     )
 
 

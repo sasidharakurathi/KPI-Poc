@@ -12,7 +12,7 @@ class OrganizationResponse(BaseModel):
     org_id: str
     name: str
     tagline: Optional[str] = None
-    default_timezone: str
+    default_timezone_id: Optional[str] = None
     site_name: Optional[str] = None
     site_address: Optional[str] = None
     latitude: Optional[float] = None
@@ -23,7 +23,7 @@ class OrganizationResponse(BaseModel):
 class OrganizationUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=120)
     tagline: Optional[str] = Field(default=None, max_length=150)
-    default_timezone: Optional[str] = None
+    default_timezone_id: Optional[str] = None
     site_name: Optional[str] = Field(default=None, min_length=2, max_length=100)
     site_address: Optional[str] = None
     latitude: Optional[float] = Field(default=None, ge=-90, le=90)

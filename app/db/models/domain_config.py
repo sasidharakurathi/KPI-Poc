@@ -12,6 +12,7 @@ class Priority(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(unique=True)           # 2-40 chars, unique within org
     color: str                               # hex color, e.g. "#FF0000"
+    level: int = Field(default=99)           # severity rank, 1 = highest; 99 = unranked
     enabled: bool = Field(default=True)
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -37,7 +38,11 @@ class Zone(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str                                   # 2-60 chars
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
+    # Superseded by timezone_id below (real FK into the static timezones
+    # catalog) — left in place, unused, per this project's additive-only
+    # migration policy. Never read or written by any endpoint anymore.
     timezone: Optional[str] = None
+    timezone_id: Optional[int] = Field(default=None, foreign_key="timezones.id")
     description: Optional[str] = None
     enabled: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)

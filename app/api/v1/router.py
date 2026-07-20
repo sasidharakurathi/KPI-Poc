@@ -16,6 +16,7 @@ from .endpoints import (
     priorities,
     roles,
     settings,
+    timezones,
     users,
     videos,
     zones,
@@ -39,6 +40,7 @@ api_router.include_router(priorities.router)     # Phase 1
 api_router.include_router(zones.router)          # Phase 1
 api_router.include_router(email_servers.router)  # Phase 1
 api_router.include_router(kpi_models.router)     # Phase 1
+api_router.include_router(timezones.router)      # Phase 1 (static catalog, public)
 api_router.include_router(roles.router)          # Phase 6
 api_router.include_router(users.router)          # Phase 7
 api_router.include_router(dashboard.router)      # Phase 5

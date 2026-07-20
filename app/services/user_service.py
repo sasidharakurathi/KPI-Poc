@@ -102,6 +102,14 @@ def _check_email_unique(
 
 
 def create_user(db: Session, org_id: Optional[int], payload: UserCreateInput) -> UserResponse:
+    # Checked first, before touching anything else: onboarding a user always
+    # sends them an email, so there's no point validating the rest of the
+    # payload if there's nowhere to send it from. User-initiated action after
+    # signup -> hard-fails per app.services.email_service's contract.
+    from app.services.email_service import get_default_email_server
+
+    email_server = get_default_email_server(db, org_id)
+
     username = payload.username.strip()
     if db.exec(
         select(User).where(User.org_id == org_id, User.username.ilike(username))
@@ -135,12 +143,15 @@ def create_user(db: Session, org_id: Optional[int], payload: UserCreateInput) ->
         )
     db.refresh(user)
 
-    _send_onboarding_emails(db, org_id, user, payload.password)
+    _send_onboarding_emails(db, org_id, email_server, user, payload.password)
     return _to_user_response(user)
 
 
-def _send_onboarding_emails(db: Session, org_id: Optional[int], user: User, temp_password: str) -> None:
-    from app.notifications import send_transactional_email
+def _send_onboarding_emails(db: Session, org_id: Optional[int], server, user: User, temp_password: str) -> None:
+    """Best-effort from here on — the hard requirement (a default email
+    server must exist) was already enforced before the user was created;
+    a transient SMTP failure at send time shouldn't undo that."""
+    from app.services.email_service import send_email
 
     subject = "Your Vision AI account is ready"
     plain = (
@@ -158,7 +169,7 @@ def _send_onboarding_emails(db: Session, org_id: Optional[int], user: User, temp
         f"<p>You'll be asked to set a new password the first time you sign in.</p>"
     )
     try:
-        send_transactional_email([user.login_email], subject, html, plain)
+        send_email(server, [user.login_email], subject, html, plain)
     except Exception:
         logger.warning("[users] could not send onboarding email to %s", user.login_email)
 
@@ -179,7 +190,7 @@ def _send_onboarding_emails(db: Session, org_id: Optional[int], user: User, temp
         f"<p>Name: {user.full_name}<br>Username: {user.username}<br>Email: {user.login_email}</p>"
     )
     try:
-        send_transactional_email([a.login_email for a in admins], admin_subject, admin_html, admin_plain)
+        send_email(server, [a.login_email for a in admins], admin_subject, admin_html, admin_plain)
     except Exception:
         logger.warning("[users] could not send onboarding confirmation to admins")
 

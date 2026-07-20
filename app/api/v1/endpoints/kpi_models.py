@@ -9,71 +9,109 @@ Implements:
 
 No Edit action by design (PRD 3.5): disable the wrong one, create a new entry.
 
+org_id is always derived from the authenticated caller (require_permission),
+never from the request body.
+
 Models used: KpiModelCatalog (app.db.models.domain_config)
 Schemas: KpiModelCreate, KpiModelResponse (app.schemas.config)
 """
-from fastapi import APIRouter, HTTPException, Depends
-from sqlmodel import select, Session
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
+from sqlmodel import select
 
-from app.db import get_session
+from app.core.dependencies import DbSession, require_permission
 from app.db.models.domain_config import KpiModelCatalog
 from app.schemas.config import KpiModelCreate, KpiModelResponse
 
 router = APIRouter(prefix="/api/config/kpi-models", tags=["config-kpi-models"])
 
+
 @router.get("", response_model=list[KpiModelResponse], summary="List KPI Models")
-async def list_kpi_models(session: Session = Depends(get_session)):
-    models = session.exec(select(KpiModelCatalog).where(KpiModelCatalog.enabled == True).order_by(KpiModelCatalog.id)).all()
+async def list_kpi_models(
+    session: DbSession,
+    user: dict = Depends(require_permission("configuration", "view")),
+):
+    """List every catalog entry for the caller's org, enabled or disabled."""
+    models = session.exec(
+        select(KpiModelCatalog).where(KpiModelCatalog.org_id == user.get("org_id")).order_by(KpiModelCatalog.id)
+    ).all()
     return models
 
+
 @router.post("", response_model=KpiModelResponse, status_code=201, summary="Create KPI Model")
-async def create_kpi_model(model_in: KpiModelCreate, session: Session = Depends(get_session)):
-    existing = session.exec(select(KpiModelCatalog).where(KpiModelCatalog.name == model_in.name)).first()
+async def create_kpi_model(
+    model_in: KpiModelCreate,
+    session: DbSession,
+    user: dict = Depends(require_permission("configuration", "create")),
+):
+    org_id = user.get("org_id")
+    existing = session.exec(
+        select(KpiModelCatalog).where(KpiModelCatalog.org_id == org_id, KpiModelCatalog.name == model_in.name)
+    ).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"KPI model with name '{model_in.name}' already exists.")
-        
-    model = KpiModelCatalog(**model_in.model_dump(exclude_unset=True))
+
+    model = KpiModelCatalog(**model_in.model_dump(exclude_unset=True), org_id=org_id)
     session.add(model)
     try:
         session.commit()
         session.refresh(model)
     except IntegrityError:
         session.rollback()
-        raise HTTPException(status_code=400, detail="Database constraint violation while creating KPI model.")
-        
+        raise HTTPException(status_code=409, detail=f"KPI model with name '{model_in.name}' already exists.")
+
     return model
+
 
 @router.get("/{id}", response_model=KpiModelResponse, summary="Get KPI Model")
-async def get_kpi_model(id: int, session: Session = Depends(get_session)):
+async def get_kpi_model(
+    id: int,
+    session: DbSession,
+    user: dict = Depends(require_permission("configuration", "view")),
+):
     model = session.get(KpiModelCatalog, id)
-    if not model:
+    if not model or model.org_id != user.get("org_id"):
         raise HTTPException(status_code=404, detail="KPI model not found.")
     return model
 
+
 @router.delete("/{id}", status_code=200, summary="Delete KPI Model")
-async def delete_kpi_model(id: int, session: Session = Depends(get_session)):
+async def delete_kpi_model(
+    id: int,
+    session: DbSession,
+    user: dict = Depends(require_permission("configuration", "delete")),
+):
     model = session.get(KpiModelCatalog, id)
-    if not model:
+    if not model or model.org_id != user.get("org_id"):
         raise HTTPException(status_code=404, detail="KPI model not found.")
-        
-    # TODO: Add check here to block deletion if model is referenced by KPIs
-    
+
+    # PRD §3.5: "Delete is only available when no KPI currently references
+    # the model." There is no KPI-capability table yet to check against —
+    # that's Phase 3 (KPI Management), which doesn't exist in this codebase
+    # yet. Once it does, add the same reference-check pattern used by
+    # priorities.py/zones.py's delete handlers here. Not a bug to "fix" now
+    # — genuinely blocked on Phase 3 landing first.
+
     session.delete(model)
     try:
         session.commit()
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=409, detail="Database constraint violation while deleting KPI model.")
-        
+
     return {"message": "row deleted successfully"}
 
+
 @router.patch("/{id}/toggle", response_model=KpiModelResponse, summary="Toggle KPI Model")
-async def toggle_kpi_model(id: int, session: Session = Depends(get_session)):
+async def toggle_kpi_model(
+    id: int,
+    session: DbSession,
+    user: dict = Depends(require_permission("configuration", "edit")),
+):
     model = session.get(KpiModelCatalog, id)
-    if not model:
+    if not model or model.org_id != user.get("org_id"):
         raise HTTPException(status_code=404, detail="KPI model not found.")
-        
+
     model.enabled = not model.enabled
     session.add(model)
     try:
@@ -82,5 +120,5 @@ async def toggle_kpi_model(id: int, session: Session = Depends(get_session)):
     except IntegrityError:
         session.rollback()
         raise HTTPException(status_code=400, detail="Database constraint violation while toggling KPI model.")
-        
+
     return model

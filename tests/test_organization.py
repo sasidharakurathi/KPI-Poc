@@ -36,7 +36,7 @@ def test_get_organization_returns_registered_details(client, db_session):
     body = resp.json()
     assert body["name"] == VALID_REGISTER_PAYLOAD["company_name"]
     assert body["site_name"] == VALID_REGISTER_PAYLOAD["site_name"]
-    assert body["default_timezone"] == VALID_REGISTER_PAYLOAD["default_timezone"]
+    assert body["default_timezone_id"] == VALID_REGISTER_PAYLOAD["default_timezone_id"]
 
 
 def test_owner_can_update_organization(client, db_session):
@@ -45,12 +45,24 @@ def test_owner_can_update_organization(client, db_session):
 
     resp = client.put(
         "/api/organization",
-        json={"tagline": "Updated tagline", "default_timezone": "UTC"},
+        json={"tagline": "Updated tagline", "default_timezone_id": "2"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["tagline"] == "Updated tagline"
-    assert body["default_timezone"] == "UTC"
+    assert body["default_timezone_id"] == "2"
     # untouched fields survive a partial update
     assert body["name"] == VALID_REGISTER_PAYLOAD["company_name"]
+
+
+def test_update_organization_rejects_unknown_timezone_id(client, db_session):
+    token = _activated_owner_token(client, db_session)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.put(
+        "/api/organization",
+        json={"default_timezone_id": "999999"},
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text

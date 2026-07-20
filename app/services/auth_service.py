@@ -17,7 +17,8 @@ from app.core.rate_limit import login_limiter, password_reset_limiter
 from app.core.security import (
     create_access_token, generate_secure_token, hash_password, hash_token, verify_password,
 )
-from app.db.models import Organization, RefreshToken, Role, User
+from app.db.models import EmailServer, Organization, RefreshToken, Role, Timezone, User
+from app.email_crypto import encrypt_secret
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +51,59 @@ def _aware(dt: datetime) -> datetime:
 
 # ── Registration & activation ────────────────────────────────────────────────
 
-def register_organization(db: Session, payload) -> tuple[Organization, User, Role]:
+def _seed_default_email_server(db: Session, org_id: int) -> Optional[EmailServer]:
+    """Copies DEFAULT_SMTP_* settings into a new EmailServer row for this org,
+    is_default=True, so there's something to send the activation email
+    through. Skipped entirely (returns None) if any required field is
+    unset — a deployment-level convenience, not a hard requirement."""
+    from app.config import settings
+
+    required = (
+        settings.DEFAULT_SMTP_HOST, settings.DEFAULT_SMTP_USERNAME,
+        settings.DEFAULT_SMTP_PASSWORD, settings.DEFAULT_SMTP_FROM_ADDRESS,
+    )
+    if not all(required):
+        return None
+
+    server = EmailServer(
+        label="Default",
+        smtp_host=settings.DEFAULT_SMTP_HOST,
+        smtp_port=settings.DEFAULT_SMTP_PORT,
+        username=settings.DEFAULT_SMTP_USERNAME,
+        password_encrypted=encrypt_secret(settings.DEFAULT_SMTP_PASSWORD),
+        use_tls=settings.DEFAULT_SMTP_USE_TLS,
+        from_address=settings.DEFAULT_SMTP_FROM_ADDRESS,
+        from_name=settings.DEFAULT_SMTP_FROM_NAME,
+        is_default=True,
+        enabled=True,
+        org_id=org_id,
+    )
+    db.add(server)
+    return server
+
+
+def get_timezone_or_422(db: Session, timezone_id_raw: str) -> Timezone:
+    """The timezones catalog is static, global reference data (not
+    org-scoped), so — unlike Zone/EmailServer/Role validation elsewhere —
+    this needs no org_id check, only existence + enabled."""
+    try:
+        timezone_id = int(timezone_id_raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "default_timezone_id must be a valid timezone id.")
+
+    timezone = db.get(Timezone, timezone_id)
+    if timezone is None or not timezone.enabled:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "default_timezone_id does not reference a known timezone.")
+    return timezone
+
+
+def register_organization(db: Session, payload) -> tuple[Organization, User, Role, bool]:
     """PRD §2.1: one organization per deployment. Creates the Organization,
-    its built-in Owner role (is_system=True, every permission), and the first
-    User (status=pending_verification until the activation link is used)."""
+    its built-in Owner role (is_system=True, every permission), the first
+    User (status=pending_verification until the activation link is used),
+    and — if DEFAULT_SMTP_* is configured for this deployment — a default
+    EmailServer row used to send the activation email. Returns whether that
+    email was actually sent, so the caller can surface it."""
     if db.exec(select(Organization)).first() is not None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -62,6 +112,8 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
         )
     if db.exec(select(User).where(User.username == payload.username)).first() is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Username is already taken.")
+
+    timezone = get_timezone_or_422(db, payload.default_timezone_id)
 
     org = Organization(
         # "One organization per deployment" is enforced above by a
@@ -74,7 +126,7 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
         org_id=_slugify(payload.company_name),
         name=payload.company_name,
         tagline=payload.tagline,
-        default_timezone=payload.default_timezone,
+        default_timezone_id=timezone.id,
         site_name=payload.site_name,
         site_address=payload.site_address,
         latitude=payload.latitude,
@@ -113,6 +165,9 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
             reset_token_expires=datetime.utcnow() + timedelta(hours=ACTIVATION_TOKEN_TTL_HOURS),
         )
         db.add(owner)
+        db.flush()
+
+        _seed_default_email_server(db, org.id)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -125,13 +180,25 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
     db.refresh(owner)
     db.refresh(owner_role)
 
-    _send_activation_email(owner, activation_token)
-    return org, owner, owner_role
+    email_sent = _send_activation_email(db, org.id, owner, activation_token)
+    return org, owner, owner_role, email_sent
 
 
-def _send_activation_email(user: User, token: str) -> None:
+def _send_activation_email(db: Session, org_id: int, user: User, token: str) -> bool:
+    """Best-effort by necessity — an org can't have a configured EmailServer
+    before it exists, so this can't hard-fail the way create_user/
+    request_password_reset do. Returns whether the email actually sent, so
+    RegisterResponse can be honest about it instead of a silent log line."""
     from app.config import settings
-    from app.notifications import send_transactional_email
+    from app.services.email_service import send_email, try_get_default_email_server
+
+    server = try_get_default_email_server(db, org_id)
+    if server is None:
+        logger.warning(
+            "[auth] no default email server configured for org %s — activation email "
+            "not sent. Activation token: %s", org_id, token,
+        )
+        return False
 
     link = f"{settings.PUBLIC_BASE_URL}/api/auth/activate?token={token}"
     subject = "Activate your Vision AI account"
@@ -149,12 +216,14 @@ def _send_activation_email(user: User, token: str) -> None:
         f"(valid for {ACTIVATION_TOKEN_TTL_HOURS} hours).</p>"
     )
     try:
-        send_transactional_email([user.login_email], subject, html, plain)
+        send_email(server, [user.login_email], subject, html, plain)
+        return True
     except Exception:
         logger.warning(
-            "[auth] could not send activation email to %s — SMTP may not be "
-            "configured yet. Activation token: %s", user.login_email, token,
+            "[auth] could not send activation email to %s via the configured default "
+            "email server. Activation token: %s", user.login_email, token,
         )
+        return False
 
 
 def activate_account(db: Session, token: str) -> User:
@@ -317,6 +386,17 @@ def request_password_reset(db: Session, email: str, request: Optional[Request]) 
     if password_reset_limiter.hit(f"ip:{ip}", 900) > 10:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many reset requests. Try again later.")
 
+    # Checked before any user-specific lookup, and with the same outcome
+    # regardless of whether `email` matches a real account — a missing
+    # default email server is a deployment-wide fact, not user-specific, so
+    # raising here can't be used to enumerate accounts. This is a
+    # user-initiated action after signup, so it hard-fails per
+    # app.services.email_service's contract rather than silently no-op-ing.
+    from app.services.email_service import get_default_email_server
+
+    org = db.exec(select(Organization)).first()
+    server = get_default_email_server(db, org.id if org else None)
+
     user = db.exec(select(User).where(User.login_email == email)).first()
     if user is None or user.status == "soft_deleted":
         return  # never reveal whether the email exists
@@ -328,6 +408,7 @@ def request_password_reset(db: Session, email: str, request: Optional[Request]) 
     db.commit()
 
     from app.config import settings
+    from app.services.email_service import send_email
 
     link = f"{settings.PUBLIC_BASE_URL}/api/auth/reset-password?token={token}"
     subject = "Reset your Vision AI password"
@@ -345,8 +426,7 @@ def request_password_reset(db: Session, email: str, request: Optional[Request]) 
         f"<p>If you didn't request this, you can safely ignore this email.</p>"
     )
     try:
-        from app.notifications import send_transactional_email
-        send_transactional_email([user.login_email], subject, html, plain)
+        send_email(server, [user.login_email], subject, html, plain)
     except Exception:
         logger.warning(
             "[auth] could not send password reset email to %s. Reset token: %s",

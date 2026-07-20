@@ -15,7 +15,7 @@ from app.core.validation import validate_non_blank, validate_password_strength a
 class OrgRegisterRequest(BaseModel):
     company_name: str = Field(min_length=2, max_length=120)
     tagline: Optional[str] = Field(default=None, max_length=150)
-    default_timezone: str = "UTC"
+    default_timezone_id: str
     site_name: str = Field(min_length=2, max_length=100)
     site_address: Optional[str] = None
     latitude: float = Field(ge=-90, le=90)
@@ -59,6 +59,7 @@ class RegisterResponse(BaseModel):
     organization_name: str
     username: str
     message: str
+    activation_email_sent: bool
 
 
 class ActivateRequest(BaseModel):

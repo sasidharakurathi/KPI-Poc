@@ -5,8 +5,8 @@ from .auth import (
     RefreshRequest, RegisterResponse, TokenResponse,
 )
 from .camera import (
-    CameraCreate, CameraInfo, CameraKPIDetail,
-    CameraListItem, CameraListResponse, CameraUpdate,
+    CameraCreate, CameraKPIDetail, CameraListItem,
+    CameraListResponse, CameraResponse, CameraUpdate,
 )
 from .config import (
     EmailServerCreate, EmailServerResponse, EmailServerUpdate,
@@ -29,8 +29,8 @@ __all__ = [
     "ActivateRequest", "ChangePasswordRequest", "LoginRequest", "LoginResponse",
     "MeResponse", "OrgRegisterRequest", "PasswordResetConfirm", "PasswordResetRequest",
     "RefreshRequest", "RegisterResponse", "TokenResponse",
-    "CameraCreate", "CameraInfo", "CameraKPIDetail",
-    "CameraListItem", "CameraListResponse", "CameraUpdate",
+    "CameraCreate", "CameraKPIDetail", "CameraListItem",
+    "CameraListResponse", "CameraResponse", "CameraUpdate",
     "EmailServerCreate", "EmailServerResponse", "EmailServerUpdate",
     "KpiModelCreate", "KpiModelResponse",
     "PriorityCreate", "PriorityResponse",

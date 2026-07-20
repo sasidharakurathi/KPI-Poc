@@ -163,9 +163,18 @@ def test_logout_revokes_refresh_token_and_kills_the_live_access_token(client, db
     assert after_logout.status_code == 401
 
 
-def test_forgot_password_unknown_email_is_silent_200(client):
+def test_forgot_password_unknown_email_is_silent_200(client, db_session):
+    _register_and_activate(client, db_session)  # an org (and its default email server) must exist
     resp = client.post("/api/auth/forgot-password", json={"email": "nobody@example.com"})
     assert resp.status_code == 200
+
+
+def test_forgot_password_without_any_org_yet_422s(client):
+    """No org exists at all yet -> no default email server can possibly
+    exist either -> 422, not a silent 200 (there's nothing to be silent
+    about — this is a deployment-state fact, not a per-user one)."""
+    resp = client.post("/api/auth/forgot-password", json={"email": "nobody@example.com"})
+    assert resp.status_code == 422
 
 
 def test_reset_password_flow(client, db_session):

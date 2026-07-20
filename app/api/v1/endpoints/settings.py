@@ -1,3 +1,12 @@
+"""Legacy config-file/Configuration-table settings.
+
+GET/PUT /api/settings/email configures SMTP for KPI detection alert emails
+only (app.notifications) — a separate system from account/transactional
+email (activation, password reset, user onboarding), which is configured via
+the EmailServer table (Configuration > Email Servers,
+app.api.v1.endpoints.email_servers) instead. See app/notifications.py's
+module docstring.
+"""
 import re
 
 from fastapi import APIRouter, HTTPException

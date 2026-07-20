@@ -96,12 +96,58 @@ def _migrate_roles(engine) -> None:
     ])
 
 
+def _migrate_organizations(engine) -> None:
+    """Adds default_timezone_id — real FK into the static timezones catalog,
+    superseding the old free-text default_timezone column (left in place, unused)."""
+    _add_columns(engine, "organizations", [
+        ("default_timezone_id", "INTEGER", ""),
+    ])
+
+
+def _migrate_zones(engine) -> None:
+    """Adds timezone_id — real FK into the static timezones catalog,
+    superseding the old free-text timezone column (left in place, unused)."""
+    _add_columns(engine, "zones", [
+        ("timezone_id", "INTEGER", ""),
+    ])
+
+
+def _migrate_priorities(engine) -> None:
+    """Adds level (severity rank, 1 = highest; 99 = unranked) — needed so
+    Phase 2's camera-list enrichment can surface priority_level like the
+    frontend expects."""
+    _add_columns(engine, "priorities", [
+        ("level", "INTEGER", " DEFAULT 99"),
+    ])
+
+
+def _backfill_camera_org_id(engine) -> None:
+    """Cameras are seeded from config.json at every startup (see
+    app.db.seed_cameras) and predate any org concept, so existing rows have
+    org_id=NULL. This platform is single-org-per-deployment (Organization.id
+    is always 1), so any camera missing an org_id can only ever belong to
+    that one org — backfill it, but only once that org actually exists (a
+    fresh deployment with no org registered yet has nothing to backfill to,
+    and org_id is a real FK — writing 1 before the row exists would fail)."""
+    inspector = _inspect(engine)
+    if "cameras" not in inspector.get_table_names() or "organizations" not in inspector.get_table_names():
+        return
+    with engine.begin() as conn:
+        org_exists = conn.execute(_text("SELECT 1 FROM organizations WHERE id = 1")).first()
+        if org_exists:
+            conn.execute(_text("UPDATE cameras SET org_id = 1 WHERE org_id IS NULL"))
+
+
 def run_migrations(engine) -> None:
     """Apply all pending schema changes, then run create_all for new tables."""
     _migrate_legacy_stream_columns(engine)
     _migrate_cameras(engine)
     _migrate_users(engine)
     _migrate_roles(engine)
+    _migrate_organizations(engine)
+    _migrate_zones(engine)
+    _migrate_priorities(engine)
+    _backfill_camera_org_id(engine)
 
     SQLModel.metadata.create_all(engine)
     logger.info("[migrate] all migrations applied")

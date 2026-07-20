@@ -130,6 +130,11 @@ def get_job(job_id: str) -> Optional[Job]:
 def seed_cameras(cameras: dict[str, dict]) -> None:
     with get_session_ctx() as session:
         existing = set(session.exec(select(Camera.camera_id)).all())
+        # Single-org-per-deployment: stamp org_id so newly-seeded cameras are
+        # visible through the org-scoped /api/cameras endpoints right away,
+        # instead of silently landing with org_id=NULL (see also
+        # migrations._backfill_camera_org_id for rows from before this org existed).
+        org = session.get(Organization, 1)
         for camera_id, cam in cameras.items():
             if camera_id in existing:
                 continue
@@ -139,6 +144,7 @@ def seed_cameras(cameras: dict[str, dict]) -> None:
                 zone=cam.get("zone", ""),
                 priority=cam.get("priority", "medium"),
                 kpi_ids=cam.get("kpi_ids", []),
+                org_id=org.id if org else None,
             ))
         session.commit()
 

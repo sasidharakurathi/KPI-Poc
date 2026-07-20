@@ -18,6 +18,19 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.as_posix()}"
 os.environ["JWT_SECRET_KEY"] = "test-only-secret-key-do-not-use-in-prod"
 os.environ["JWT_AUTH_ENABLED"] = "false"
 
+# Configured so every test's org registration auto-seeds a default
+# EmailServer (see auth_service._seed_default_email_server) — otherwise every
+# test that creates a user or requests a password reset would 422 on the
+# "no default email server configured" check. The values are fake/
+# unreachable; actual sending is mocked in _mock_email_sending below, so
+# nothing here ever needs to resolve or connect for real.
+os.environ["DEFAULT_SMTP_HOST"] = "smtp.test.invalid"
+os.environ["DEFAULT_SMTP_PORT"] = "587"
+os.environ["DEFAULT_SMTP_USERNAME"] = "test@example.com"
+os.environ["DEFAULT_SMTP_PASSWORD"] = "test-password"
+os.environ["DEFAULT_SMTP_FROM_ADDRESS"] = "test@example.com"
+os.environ["DEFAULT_SMTP_FROM_NAME"] = "Vision AI Test"
+
 import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -42,6 +55,23 @@ def _init_test_db():
     yield
 
 
+@pytest.fixture(autouse=True)
+def mock_email_sent(monkeypatch):
+    """No test should ever make a real SMTP connection. Patches
+    app.services.email_service.send_email everywhere it's used (auth_service,
+    user_service, and the email_servers "send test email" endpoint all import
+    it locally at call time, so patching the source module's attribute here
+    is sufficient). Returns the list of {"to", "subject"} dicts "sent" during
+    the test, for assertions that care what was attempted."""
+    sent: list[dict] = []
+
+    def _fake_send(server, to_addresses, subject, html, plain):
+        sent.append({"to": to_addresses, "subject": subject})
+
+    monkeypatch.setattr("app.services.email_service.send_email", _fake_send)
+    return sent
+
+
 @pytest.fixture()
 def db_session():
     with Session(get_engine()) as session:
@@ -53,9 +83,15 @@ def client():
     """Minimal app: JWT middleware + the routers under test, no ML/RTSP
     startup. Extend the router list here as later phases add endpoints."""
     from app.api.v1.endpoints import auth as auth_ep
+    from app.api.v1.endpoints import cameras as cameras_ep
+    from app.api.v1.endpoints import email_servers as email_servers_ep
+    from app.api.v1.endpoints import kpi_models as kpi_models_ep
     from app.api.v1.endpoints import organization as org_ep
+    from app.api.v1.endpoints import priorities as priorities_ep
     from app.api.v1.endpoints import roles as roles_ep
+    from app.api.v1.endpoints import timezones as timezones_ep
     from app.api.v1.endpoints import users as users_ep
+    from app.api.v1.endpoints import zones as zones_ep
 
     test_app = FastAPI()
     test_app.add_middleware(JWTAuthMiddleware)
@@ -63,6 +99,12 @@ def client():
     test_app.include_router(org_ep.router)
     test_app.include_router(roles_ep.router)
     test_app.include_router(users_ep.router)
+    test_app.include_router(priorities_ep.router)
+    test_app.include_router(zones_ep.router)
+    test_app.include_router(email_servers_ep.router)
+    test_app.include_router(kpi_models_ep.router)
+    test_app.include_router(timezones_ep.router)
+    test_app.include_router(cameras_ep.router)
 
     with TestClient(test_app) as c:
         yield c
@@ -71,7 +113,7 @@ def client():
 VALID_REGISTER_PAYLOAD = {
     "company_name": "Acme Terminal Operations",
     "tagline": "Safety first",
-    "default_timezone": "Asia/Kolkata",
+    "default_timezone_id": "1",  # fresh per-test DB always seeds timezones starting at id=1
     "site_name": "Acme Port Terminal",
     "site_address": "1 Harbor Way",
     "latitude": 18.9548,
