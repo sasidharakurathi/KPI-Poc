@@ -20,7 +20,7 @@ from app.config_loader import get_kpi_registry
 from app.db.models.camera import Camera
 from app.db.models.domain_config import Priority, Zone
 from app.email_crypto import EmailCryptoNotConfigured, encrypt_secret
-from app.kpis import list_registered_names
+from app.kpis import get_registry, list_registered_names
 from app.schemas.camera import (
     CameraCreate, CameraKPIDetail, CameraListItem,
     CameraListResponse, CameraResponse, CameraUpdate,
@@ -77,6 +77,22 @@ def _resolve_priority_or_422(db: Session, org_id: Optional[int], raw: str) -> Pr
     return priority
 
 
+def _resolve_kpi_model_ids_or_422(raw: list[str]) -> list[str]:
+    """kpi_model_ids reference Phase 3's KPI Management capability keys —
+    gated to real registered detectors (app.kpis.registry), same as the
+    catalog itself (app.api.v1.endpoints.kpis)."""
+    known = set(list_registered_names())
+    for key in raw:
+        if key not in known:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"kpi_model_ids contains an unknown KPI: {key!r}")
+    return raw
+
+
+def _kpi_model_labels(kpi_model_ids: list[str]) -> list[str]:
+    registry = get_registry()
+    return [registry[key].display_name if key in registry else key for key in kpi_model_ids]
+
+
 def _kpi_details(kpi_ids: list[int]) -> list[CameraKPIDetail]:
     registry = get_kpi_registry()
     implemented_names = set(list_registered_names())
@@ -105,6 +121,8 @@ def _to_camera_response(db: Session, cam: Camera) -> CameraResponse:
         priority_level=priority.level if priority else None,
         kpi_ids=cam.kpi_ids,
         kpis=_kpi_details(cam.kpi_ids),
+        kpi_model_ids=cam.kpi_model_ids,
+        kpi_model_labels=_kpi_model_labels(cam.kpi_model_ids),
         status="active" if cam.enabled else "inactive",
         camera_ip=cam.camera_ip,
         rtsp_port=cam.rtsp_port,
@@ -137,6 +155,8 @@ def _to_camera_list_item(
         priority_level=priority.level if priority else None,
         total_kpis=len(cam.kpi_ids),
         implemented_kpis=sum(1 for kid in cam.kpi_ids if registry.get(str(kid)) in implemented_names),
+        kpi_model_ids=cam.kpi_model_ids,
+        kpi_model_labels=_kpi_model_labels(cam.kpi_model_ids),
         status="active" if cam.enabled else "inactive",
         recording_enabled=cam.recording_enabled,
         stream_status=stream_status,
@@ -173,6 +193,7 @@ def create_camera(db: Session, user: dict, payload: CameraCreate) -> CameraRespo
 
     zone = _resolve_zone_or_422(db, org_id, payload.zone_id)
     priority = _resolve_priority_or_422(db, org_id, payload.priority_id)
+    kpi_model_ids = _resolve_kpi_model_ids_or_422(payload.kpi_model_ids)
 
     encrypted_pw = None
     if payload.stream_password:
@@ -187,6 +208,7 @@ def create_camera(db: Session, user: dict, payload: CameraCreate) -> CameraRespo
         zone_id=zone.id,
         priority_id=priority.id,
         kpi_ids=payload.kpi_ids,
+        kpi_model_ids=kpi_model_ids,
         camera_ip=payload.camera_ip,
         rtsp_port=payload.rtsp_port,
         stream_username=payload.stream_username,
@@ -223,7 +245,7 @@ def update_camera(db: Session, user: dict, camera_id: str, payload: CameraUpdate
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Camera '{camera_id}' not found.")
 
     update_data = payload.model_dump(
-        exclude_unset=True, exclude={"zone_id", "priority_id", "stream_password", "status"},
+        exclude_unset=True, exclude={"zone_id", "priority_id", "kpi_model_ids", "stream_password", "status"},
     )
     for key, value in update_data.items():
         setattr(cam, key, value)
@@ -232,6 +254,8 @@ def update_camera(db: Session, user: dict, camera_id: str, payload: CameraUpdate
         cam.zone_id = _resolve_zone_or_422(db, org_id, payload.zone_id).id
     if payload.priority_id is not None:
         cam.priority_id = _resolve_priority_or_422(db, org_id, payload.priority_id).id
+    if payload.kpi_model_ids is not None:
+        cam.kpi_model_ids = _resolve_kpi_model_ids_or_422(payload.kpi_model_ids)
     if payload.stream_password:
         try:
             cam.stream_password_encrypted = encrypt_secret(payload.stream_password)

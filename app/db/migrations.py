@@ -48,6 +48,7 @@ def _migrate_cameras(engine) -> None:
         ("org_id",              "INTEGER",  ""),
         ("zone_id",             "INTEGER",  ""),
         ("priority_id",         "INTEGER",  ""),
+        ("kpi_model_ids",       "JSON",     " DEFAULT '[]'"),
     ])
 
 
@@ -185,6 +186,40 @@ def _migrate_audit_logs(engine) -> None:
     ])
 
 
+def _migrate_kpi_configuration(engine) -> None:
+    """Phase 3 (team-built, audited 2026-07-21): adds org_id — the table had
+    none at all, so every row was visible regardless of org — and converts
+    assigned_models/parameters from manually json.dumps()-serialized TEXT to
+    native JSON columns (every other JSON-bearing column in this codebase —
+    Alert.extra, Role.permissions, AuditLog.before/after — uses SQLModel's
+    JSON type; TEXT meant these fields couldn't be queried, and a malformed
+    stored string would silently break response validation instead of
+    failing cleanly). The TEXT->JSON conversion only runs on Postgres and is
+    safe to run unconditionally: confirmed live that this brand-new table
+    had zero real rows at audit time."""
+    inspector = _inspect(engine)
+    if "kpi_configuration" not in inspector.get_table_names():
+        return
+
+    _add_columns(engine, "kpi_configuration", [
+        ("org_id", "INTEGER", ""),
+        ("description", "VARCHAR", ""),
+        ("category", "VARCHAR", ""),
+    ])
+
+    if engine.dialect.name == "postgresql":
+        fresh_columns = {col["name"]: col for col in _inspect(engine).get_columns("kpi_configuration")}
+        with engine.begin() as conn:
+            for col_name in ("assigned_models", "parameters"):
+                col_type = str(fresh_columns.get(col_name, {}).get("type", "")).upper()
+                if "JSON" not in col_type:
+                    conn.execute(_text(
+                        f"ALTER TABLE kpi_configuration ALTER COLUMN {col_name} "
+                        f"TYPE JSON USING {col_name}::json"
+                    ))
+                    logger.info(f"[migrate] kpi_configuration.{col_name} converted TEXT -> JSON")
+
+
 def run_migrations(engine) -> None:
     """Apply all pending schema changes, then run create_all for new tables."""
     _migrate_legacy_stream_columns(engine)
@@ -197,6 +232,7 @@ def run_migrations(engine) -> None:
     _backfill_camera_org_id(engine)
     _migrate_alerts(engine)
     _migrate_audit_logs(engine)
+    _migrate_kpi_configuration(engine)
 
     SQLModel.metadata.create_all(engine)
     logger.info("[migrate] all migrations applied")

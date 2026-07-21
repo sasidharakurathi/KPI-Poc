@@ -196,3 +196,73 @@ def test_delete_camera(client, owner):
 def test_delete_unknown_camera_404s(client, owner):
     resp = client.delete("/api/cameras/NOPE", headers=owner["headers"])
     assert resp.status_code == 404
+
+
+# ── kpi_model_ids (Phase 3 KPI Management linkage) ──────────────────────────
+
+def _a_real_kpi_name() -> str:
+    from app.kpis import list_registered_names
+    names = list_registered_names()
+    assert names, "expected at least one registered KPI for this test to be meaningful"
+    return names[0]
+
+
+def test_create_camera_with_kpi_model_ids(client, owner):
+    from app.kpis import get_registry
+
+    zone_id = _make_zone(client, owner["headers"])
+    priority_id = _make_priority(client, owner["headers"])
+    name = _a_real_kpi_name()
+    expected_label = get_registry()[name].display_name
+
+    resp = client.post(
+        "/api/cameras", headers=owner["headers"],
+        json={"camera_id": "CAM-KPI3", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id, "kpi_model_ids": [name]},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["kpi_model_ids"] == [name]
+    assert body["kpi_model_labels"] == [expected_label]
+    # legacy numeric field untouched
+    assert body["kpi_ids"] == []
+
+
+def test_create_camera_rejects_unknown_kpi_model_id(client, owner):
+    zone_id = _make_zone(client, owner["headers"])
+    priority_id = _make_priority(client, owner["headers"])
+    resp = client.post(
+        "/api/cameras", headers=owner["headers"],
+        json={"camera_id": "CAM-KPI-BAD", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id, "kpi_model_ids": ["not_a_real_kpi"]},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+def test_update_camera_kpi_model_ids(client, owner):
+    zone_id = _make_zone(client, owner["headers"])
+    priority_id = _make_priority(client, owner["headers"])
+    name = _a_real_kpi_name()
+    client.post(
+        "/api/cameras", headers=owner["headers"],
+        json={"camera_id": "CAM-KPI4", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id},
+    )
+    resp = client.put(
+        f"/api/cameras/CAM-KPI4", headers=owner["headers"],
+        json={"kpi_model_ids": [name]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["kpi_model_ids"] == [name]
+
+
+def test_list_cameras_includes_kpi_model_ids(client, owner):
+    zone_id = _make_zone(client, owner["headers"])
+    priority_id = _make_priority(client, owner["headers"])
+    name = _a_real_kpi_name()
+    client.post(
+        "/api/cameras", headers=owner["headers"],
+        json={"camera_id": "CAM-KPI5", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id, "kpi_model_ids": [name]},
+    )
+    resp = client.get("/api/cameras", headers=owner["headers"])
+    assert resp.status_code == 200, resp.text
+    row = next(c for c in resp.json()["cameras"] if c["camera_id"] == "CAM-KPI5")
+    assert row["kpi_model_ids"] == [name]
+    assert len(row["kpi_model_labels"]) == 1

@@ -30,6 +30,11 @@ class Camera(SQLModel, table=True):
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     zone_id: Optional[int] = Field(default=None, foreign_key="zones.id")
     priority_id: Optional[int] = Field(default=None, foreign_key="priorities.id")
+    # String-keyed KPI Management capability keys (Phase 3's KPIConfiguration.kpi_name,
+    # gated to real registered detectors) — distinct from the legacy numeric
+    # kpi_ids above, which is what the pipeline actually reads. Matches the
+    # frontend's CameraRecord.kpi_model_ids.
+    kpi_model_ids: list = Field(default_factory=list, sa_column=Column(_JSON))
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -1,7 +1,6 @@
 from typing import Any, Optional
-from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class KPIInfo(BaseModel):
@@ -26,28 +25,47 @@ class KPISettingsResponse(BaseModel):
     kpis: list[KPISettingsItem]
 
 
-from pydantic import BaseModel, field_validator
+KPI_CATEGORIES = ("safety", "compliance", "operations", "security")
 
 
 class KpiCatalogUpdate(BaseModel):
-    assigned_models: Optional[list[str]] = None
-    parameters: Optional[dict[str, Any]] = None
+    """Field names/values match the frontend's real contract exactly
+    (vision-ai-frontend/src/api/kpiModels.ts KpiModelInput + the
+    setEnabled/updateConfig/updateModels mutations) — model_ids references
+    Phase 1's KpiModelCatalog (Configuration > KPI Models), not this
+    catalog's own rows and not the code-level detector registry."""
+    model_ids: Optional[list[str]] = None
+    config: Optional[dict[str, Any]] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
 
-    @field_validator('assigned_models', mode='before')
+    @field_validator("model_ids", mode="before")
     @classmethod
     def prevent_string_coercion(cls, v):
         if isinstance(v, str):
-            raise ValueError("assigned_models must be a list of strings (e.g., [\"models/enable.py\"]), not a single string.")
+            raise ValueError('model_ids must be a list of strings (e.g., ["3"]), not a single string.')
+        return v
+
+    @field_validator("category")
+    @classmethod
+    def _valid_category(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in KPI_CATEGORIES:
+            raise ValueError(f"category must be one of {KPI_CATEGORIES}.")
         return v
 
 
 class KpiCatalogResponse(BaseModel):
-    id: int
-    kpi_name: str
-    assigned_models: Optional[list[str]] = None
-    parameters: Optional[dict[str, Any]] = None
-    enable_status: bool
-    created_at: datetime
-    created_by: Optional[str] = None
-    updated_at: datetime
-    updated_by: Optional[str] = None
+    """Matches the frontend's KpiModelDef exactly. display_name is resolved
+    live from the real detector registry (app.kpis.registry) rather than
+    stored — kpi_name is gated to a real registered detector at write time,
+    so this is always resolvable — matching the "resolve live, don't
+    snapshot" pattern already used for zone_name/priority_name elsewhere."""
+    id: str
+    key: str
+    display_name: str
+    description: str
+    category: str
+    enabled: bool
+    config: dict[str, Any]
+    model_ids: list[str]
+    added_at: str

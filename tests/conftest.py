@@ -89,6 +89,7 @@ def client():
     from app.api.v1.endpoints import dashboard as dashboard_ep
     from app.api.v1.endpoints import email_servers as email_servers_ep
     from app.api.v1.endpoints import kpi_models as kpi_models_ep
+    from app.api.v1.endpoints import kpis as kpis_ep
     from app.api.v1.endpoints import organization as org_ep
     from app.api.v1.endpoints import priorities as priorities_ep
     from app.api.v1.endpoints import roles as roles_ep
@@ -112,6 +113,7 @@ def client():
     test_app.include_router(alerts_ep.router)
     test_app.include_router(dashboard_ep.router)
     test_app.include_router(audit_ep.router)
+    test_app.include_router(kpis_ep.router)
     test_app.include_router(ws_ep.router)
 
     with TestClient(test_app) as c:

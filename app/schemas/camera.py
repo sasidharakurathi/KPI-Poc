@@ -11,9 +11,9 @@ exists. Notably:
     Camera.enabled boolean toggle — distinct from Camera.connectivity_status,
     which is a live health signal, not something a client sets directly.
   - kpi_ids stays the existing numeric list (feeds the real detection
-    pipeline via app.kpis.registry) — the frontend's string-keyed
-    kpi_model_ids references Phase 3's KPI Management capability table,
-    which doesn't exist yet; deliberately not built in this phase.
+    pipeline via app.kpis.registry) — kpi_model_ids (string-keyed, Phase 3's
+    KPI Management capability keys) is a separate, additive field validated
+    against the real registered-detector list.
   - zone_name/priority_name/priority_color/priority_level are server-side
     enrichment (the frontend's mock does this client-side today via
     CameraListRow) so a future real-API swap needs no client-side join logic.
@@ -37,6 +37,7 @@ class CameraCreate(BaseModel):
     zone_id: str
     priority_id: str
     kpi_ids: list[int] = Field(default_factory=list)
+    kpi_model_ids: list[str] = Field(default_factory=list)
     camera_ip: Optional[str] = None
     rtsp_port: int = Field(default=554, ge=1, le=65535)
     stream_username: Optional[str] = None
@@ -60,6 +61,7 @@ class CameraUpdate(BaseModel):
     zone_id: Optional[str] = None
     priority_id: Optional[str] = None
     kpi_ids: Optional[list[int]] = None
+    kpi_model_ids: Optional[list[str]] = None
     camera_ip: Optional[str] = None
     rtsp_port: Optional[int] = Field(default=None, ge=1, le=65535)
     stream_username: Optional[str] = None
@@ -92,6 +94,8 @@ class CameraResponse(BaseModel):
     priority_level: Optional[int] = None
     kpi_ids: list[int]
     kpis: list[CameraKPIDetail]
+    kpi_model_ids: list[str] = Field(default_factory=list)
+    kpi_model_labels: list[str] = Field(default_factory=list)
     status: str
     camera_ip: Optional[str] = None
     rtsp_port: int = 554
@@ -115,6 +119,8 @@ class CameraListItem(BaseModel):
     priority_level: Optional[int] = None
     total_kpis: int
     implemented_kpis: int
+    kpi_model_ids: list[str] = Field(default_factory=list)
+    kpi_model_labels: list[str] = Field(default_factory=list)
     status: str
     recording_enabled: bool = False
     stream_status: str = "disabled"
