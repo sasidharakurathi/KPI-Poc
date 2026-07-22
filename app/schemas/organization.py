@@ -17,6 +17,7 @@ class OrganizationResponse(BaseModel):
     site_address: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    logo_url: Optional[str] = None
     created_at: datetime
 
 

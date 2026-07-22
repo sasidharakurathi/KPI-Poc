@@ -35,8 +35,9 @@ api_router.include_router(settings.router)
 api_router.include_router(email_logs.router)
 
 # ── Phase stubs (routers registered but empty — teams add endpoints here) ─────
-api_router.include_router(auth.router)           # Phase 0
-api_router.include_router(organization.router)   # Phase 0
+api_router.include_router(auth.router)                        # Phase 0
+api_router.include_router(organization.router)                # Phase 0
+api_router.include_router(organization.organizations_router)  # Phase 0 (multi-org listing)
 api_router.include_router(priorities.router)     # Phase 1
 api_router.include_router(zones.router)          # Phase 1
 api_router.include_router(email_servers.router)  # Phase 1

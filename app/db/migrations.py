@@ -163,18 +163,19 @@ def _migrate_alerts(engine) -> None:
 def _backfill_camera_org_id(engine) -> None:
     """Cameras are seeded from config.json at every startup (see
     app.db.seed_cameras) and predate any org concept, so existing rows have
-    org_id=NULL. This platform is single-org-per-deployment (Organization.id
-    is always 1), so any camera missing an org_id can only ever belong to
-    that one org — backfill it, but only once that org actually exists (a
-    fresh deployment with no org registered yet has nothing to backfill to,
-    and org_id is a real FK — writing 1 before the row exists would fail)."""
+    org_id=NULL. This is a one-time backfill for those legacy rows: they're
+    attributed to the first organization ever registered on this deployment
+    (lowest id), the same convention app.db.seed_cameras uses going forward
+    for newly-seeded cameras — config.json still represents one physical
+    camera fleet, regardless of how many organizations now exist on top of
+    it. A no-op if no organization has been registered yet."""
     inspector = _inspect(engine)
     if "cameras" not in inspector.get_table_names() or "organizations" not in inspector.get_table_names():
         return
     with engine.begin() as conn:
-        org_exists = conn.execute(_text("SELECT 1 FROM organizations WHERE id = 1")).first()
-        if org_exists:
-            conn.execute(_text("UPDATE cameras SET org_id = 1 WHERE org_id IS NULL"))
+        first_org = conn.execute(_text("SELECT id FROM organizations ORDER BY id LIMIT 1")).first()
+        if first_org:
+            conn.execute(_text("UPDATE cameras SET org_id = :org_id WHERE org_id IS NULL"), {"org_id": first_org[0]})
 
 
 def _migrate_audit_logs(engine) -> None:
@@ -184,6 +185,60 @@ def _migrate_audit_logs(engine) -> None:
     _add_columns(engine, "audit_logs", [
         ("summary", "VARCHAR", ""),
     ])
+
+
+def _rescope_unique_constraint_to_org(engine, table_name: str, column: str, org_column: str = "org_id") -> None:
+    """Replaces a single-column UNIQUE(column) constraint with a composite
+    UNIQUE(org_column, column) one.
+
+    Several org-scoped tables (Priority.name, EmailServer.label,
+    KpiModelCatalog.name, Role.name) were originally declared with a
+    column-level `unique=True` in SQLModel — a global constraint — even
+    though every endpoint's own duplicate-check has always been scoped to
+    org_id. That mismatch was invisible on a single-org deployment (there
+    was only ever one org to collide within) and becomes a real bug the
+    moment a second organization exists: its first "Critical" priority (or
+    "Owner" role, seeded automatically at registration) would collide with
+    the first org's row and fail with a misleading 409/500.
+
+    Postgres auto-names a column-level UNIQUE constraint `<table>_<column>_key`,
+    but we discover it via the inspector instead of hardcoding that, in case
+    a given deployment's constraint was named differently.
+    """
+    inspector = _inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return
+
+    existing = inspector.get_unique_constraints(table_name)
+    old_constraint = next(
+        (uc for uc in existing if uc["column_names"] == [column] and uc.get("name")), None,
+    )
+    composite_present = any(
+        set(uc["column_names"]) == {org_column, column} for uc in existing
+    )
+
+    with engine.begin() as conn:
+        if old_constraint is not None:
+            conn.execute(_text(f'ALTER TABLE {table_name} DROP CONSTRAINT "{old_constraint["name"]}"'))
+            logger.info(f"[migrate] {table_name}: dropped global unique constraint on {column}")
+        if not composite_present:
+            constraint_name = f"uq_{table_name}_{org_column}_{column}"
+            conn.execute(_text(
+                f'ALTER TABLE {table_name} ADD CONSTRAINT "{constraint_name}" UNIQUE ({org_column}, {column})'
+            ))
+            logger.info(f"[migrate] {table_name}: added composite unique constraint on ({org_column}, {column})")
+
+
+def _migrate_multi_org_unique_constraints(engine) -> None:
+    """SQLite (pytest's throwaway DB) always gets the composite constraint
+    fresh via create_all — this only needs to run against Postgres, where
+    these tables may already exist with the old global constraint."""
+    if engine.dialect.name != "postgresql":
+        return
+    _rescope_unique_constraint_to_org(engine, "priorities", "name")
+    _rescope_unique_constraint_to_org(engine, "email_servers", "label")
+    _rescope_unique_constraint_to_org(engine, "kpi_model_catalog", "name")
+    _rescope_unique_constraint_to_org(engine, "roles", "name")
 
 
 def _migrate_kpi_configuration(engine) -> None:
@@ -233,6 +288,7 @@ def run_migrations(engine) -> None:
     _migrate_alerts(engine)
     _migrate_audit_logs(engine)
     _migrate_kpi_configuration(engine)
+    _migrate_multi_org_unique_constraints(engine)
 
     SQLModel.metadata.create_all(engine)
     logger.info("[migrate] all migrations applied")

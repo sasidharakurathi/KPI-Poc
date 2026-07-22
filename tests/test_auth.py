@@ -41,10 +41,31 @@ def test_register_creates_pending_org_and_owner(client, db_session):
     assert user.reset_token is not None
 
 
-def test_register_second_org_rejected(client):
+def test_register_second_org_succeeds(client, db_session):
+    """Multi-tenant: any number of organizations may register. Each gets its
+    own row, its own slugified org_id, and its own Owner role/user."""
     first = _register(client)
     assert first.status_code == 201, first.text
-    second = _register(client, {**VALID_REGISTER_PAYLOAD, "username": "someone.else"})
+    second = _register(client, {
+        **VALID_REGISTER_PAYLOAD, "username": "someone.else", "owner_email": "someone.else@example.com",
+    })
+    assert second.status_code == 201, second.text
+    assert second.json()["organization_name"] == VALID_REGISTER_PAYLOAD["company_name"]
+
+    from app.db.models import Organization
+
+    orgs = db_session.exec(select(Organization)).all()
+    assert len(orgs) == 2
+    assert orgs[0].id != orgs[1].id
+    assert orgs[0].org_id != orgs[1].org_id  # slug collision resolved with a numeric suffix
+
+
+def test_register_second_org_same_username_rejected(client):
+    """Username stays globally unique across every organization — login has
+    no org selector, so two accounts sharing a username would be ambiguous."""
+    first = _register(client)
+    assert first.status_code == 201, first.text
+    second = _register(client, {**VALID_REGISTER_PAYLOAD, "company_name": "A Totally Different Company"})
     assert second.status_code == 409
 
 
@@ -169,11 +190,32 @@ def test_forgot_password_unknown_email_is_silent_200(client, db_session):
     assert resp.status_code == 200
 
 
-def test_forgot_password_without_any_org_yet_422s(client):
-    """No org exists at all yet -> no default email server can possibly
-    exist either -> 422, not a silent 200 (there's nothing to be silent
-    about — this is a deployment-state fact, not a per-user one)."""
+def test_forgot_password_for_unknown_email_is_silent_200(client):
+    """Multi-tenant: which org's default email server (if any) would matter
+    can only be known once a matching user is resolved, so an email that
+    doesn't match any account — including when no organization has even
+    registered yet — returns the same generic 200 rather than revealing
+    anything. (The single-org predecessor of this test asserted a 422 here,
+    on the reasoning that "no org exists" was a deployment-wide fact safe to
+    surface before any per-email lookup — that reasoning doesn't hold once
+    multiple orgs, each with independent email config, are possible.)"""
     resp = client.post("/api/auth/forgot-password", json={"email": "nobody@example.com"})
+    assert resp.status_code == 200
+
+
+def test_forgot_password_for_real_user_without_default_email_server_422s(client, db_session, monkeypatch):
+    """A *real* account whose org has no default email server configured
+    still hard-fails with 422 — surfacing misconfiguration clearly, per
+    app.services.auth_service.request_password_reset's docstring."""
+    payload = _register_and_activate(client, db_session)
+
+    from app.db.models import EmailServer
+
+    for server in db_session.exec(select(EmailServer)).all():
+        db_session.delete(server)
+    db_session.commit()
+
+    resp = client.post("/api/auth/forgot-password", json={"email": payload["owner_email"]})
     assert resp.status_code == 422
 
 
@@ -352,11 +394,11 @@ def test_register_rejects_whitespace_only_names(client):
 
 
 def test_register_integrity_error_becomes_409_not_500(client, monkeypatch):
-    """Simulates the TOCTOU race two concurrent registrations could hit: the
-    app-level 'no org exists yet' check can't see it, but the DB's primary
-    key collision on the pinned org id=1 still fires. Deterministic
-    monkeypatch instead of real thread concurrency, which is flaky against
-    SQLite's write-locking behavior."""
+    """Simulates a race two concurrent registrations could hit (e.g. the same
+    username, or a slug collision app-level dedup didn't catch in time) —
+    the DB-level unique constraint still fires and must surface as 409, not
+    an unhandled 500. Deterministic monkeypatch instead of real thread
+    concurrency, which is flaky against SQLite's write-locking behavior."""
     from sqlalchemy.exc import IntegrityError
     from sqlmodel import Session
 

@@ -97,33 +97,41 @@ def get_timezone_or_422(db: Session, timezone_id_raw: str) -> Timezone:
     return timezone
 
 
+def _unique_org_slug(db: Session, base_slug: str) -> str:
+    """org_id (the human-readable slug) is globally unique across every
+    organization on this deployment. Two orgs registering with the same or
+    similarly-spelled company_name would otherwise collide on the exact same
+    slugified string — append a numeric suffix until it's free, rather than
+    surfacing that as a confusing 409 for what the caller sees as an
+    unrelated field (they submitted company_name, not org_id)."""
+    slug = base_slug
+    suffix = 2
+    while db.exec(select(Organization).where(Organization.org_id == slug)).first() is not None:
+        slug = f"{base_slug}-{suffix}"
+        suffix += 1
+    return slug
+
+
 def register_organization(db: Session, payload) -> tuple[Organization, User, Role, bool]:
-    """PRD §2.1: one organization per deployment. Creates the Organization,
-    its built-in Owner role (is_system=True, every permission), the first
+    """Creates a new Organization on this multi-tenant deployment, along with
+    its built-in Owner role (is_system=True, every permission) and first
     User (status=pending_verification until the activation link is used),
     and — if DEFAULT_SMTP_* is configured for this deployment — a default
     EmailServer row used to send the activation email. Returns whether that
-    email was actually sent, so the caller can surface it."""
-    if db.exec(select(Organization)).first() is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "An organization already exists on this deployment. This platform "
-            "supports one organization per deployment.",
-        )
+    email was actually sent, so the caller can surface it.
+
+    Any number of organizations may register; the only uniqueness
+    requirements are username/login_email (global — login has no org
+    selector, see app/db/models/user.py) and org_id, the slugified company
+    name (deduplicated by _unique_org_slug above)."""
     if db.exec(select(User).where(User.username == payload.username)).first() is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Username is already taken.")
 
     timezone = get_timezone_or_422(db, payload.default_timezone_id)
+    org_slug = _unique_org_slug(db, _slugify(payload.company_name))
 
     org = Organization(
-        # "One organization per deployment" is enforced above by a
-        # check-then-insert that has a TOCTOU race window under concurrent
-        # requests — two requests can both see "no org exists" before either
-        # commits. Pinning id=1 turns this into a real, DB-enforced
-        # singleton-row constraint: a second concurrent insert collides on
-        # the primary key and raises IntegrityError, caught below.
-        id=1,
-        org_id=_slugify(payload.company_name),
+        org_id=org_slug,
         name=payload.company_name,
         tagline=payload.tagline,
         default_timezone_id=timezone.id,
@@ -173,8 +181,8 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
         db.rollback()
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "An organization already exists on this deployment, or the username is "
-            "already taken. This platform supports one organization per deployment.",
+            "The username is already taken, or the organization slug collided "
+            "with a concurrent registration — please try again.",
         )
     db.refresh(org)
     db.refresh(owner)
@@ -386,20 +394,24 @@ def request_password_reset(db: Session, email: str, request: Optional[Request]) 
     if password_reset_limiter.hit(f"ip:{ip}", 900) > 10:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many reset requests. Try again later.")
 
-    # Checked before any user-specific lookup, and with the same outcome
-    # regardless of whether `email` matches a real account — a missing
-    # default email server is a deployment-wide fact, not user-specific, so
-    # raising here can't be used to enumerate accounts. This is a
-    # user-initiated action after signup, so it hard-fails per
-    # app.services.email_service's contract rather than silently no-op-ing.
-    from app.services.email_service import get_default_email_server
-
-    org = db.exec(select(Organization)).first()
-    server = get_default_email_server(db, org.id if org else None)
-
     user = db.exec(select(User).where(User.login_email == email)).first()
     if user is None or user.status == "soft_deleted":
         return  # never reveal whether the email exists
+
+    # Each organization configures its own default email server, so which
+    # one to check can only be known once the user (and therefore their org)
+    # has been resolved — unlike the old single-org version of this function,
+    # which could check "the" deployment's email server before the
+    # user-specific lookup, keeping the failure mode identical whether or
+    # not the email existed. That property doesn't survive multi-tenancy:
+    # this now hard-fails with 422 only for a *real* account whose org has no
+    # default email server configured, which is a deliberate choice (surface
+    # misconfiguration clearly to whoever is testing/setting up the flow)
+    # over silently no-op-ing — same tradeoff app.services.email_service's
+    # other callers (create_user, etc.) already make.
+    from app.services.email_service import get_default_email_server
+
+    server = get_default_email_server(db, user.org_id)
 
     token = generate_secure_token()
     user.reset_token = token

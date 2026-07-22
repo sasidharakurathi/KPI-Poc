@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     UPLOAD_DIR: Path = BASE_DIR / "storage" / "uploads"
     ALERTS_DIR: Path = BASE_DIR / "storage" / "alerts"
     RECORDINGS_DIR: Path = BASE_DIR / "storage" / "recordings"
+    LOGOS_DIR: Path = BASE_DIR / "storage" / "logos"
+    LOGO_MAX_SIZE_BYTES: int = 2 * 1024 * 1024  # 2 MB
     DATABASE_URL: str = f"sqlite:///{(BASE_DIR / 'storage' / 'app.db').as_posix()}"
     DEVICE: str = _default_device()
     USE_HALF: bool = True

@@ -1,16 +1,24 @@
 """Reference-data tables: Priority, Timezone, Zone, EmailServer, KpiModelCatalog.
-These are the Phase 1 Configuration module tables from the PRD."""
+These are the Phase 1 Configuration module tables from the PRD.
+
+Priority.name / EmailServer.label / KpiModelCatalog.name are unique per
+organization, not globally — enforced via a composite (org_id, name) unique
+constraint rather than a single-column one, since this platform hosts
+multiple organizations and two different orgs must each be free to use
+"Critical" as a priority name, "Primary SMTP" as an email server label, etc.
+"""
 from datetime import datetime
 from typing import Optional
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
 class Priority(SQLModel, table=True):
     __tablename__ = "priorities"  # type: ignore[assignment]
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_priorities_org_id_name"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True)           # 2-40 chars, unique within org
+    name: str                                # 2-40 chars, unique within org
     color: str                               # hex color, e.g. "#FF0000"
     level: int = Field(default=99)           # severity rank, 1 = highest; 99 = unranked
     enabled: bool = Field(default=True)
@@ -53,9 +61,10 @@ class Zone(SQLModel, table=True):
 
 class EmailServer(SQLModel, table=True):
     __tablename__ = "email_servers"  # type: ignore[assignment]
+    __table_args__ = (UniqueConstraint("org_id", "label", name="uq_email_servers_org_id_label"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    label: str = Field(unique=True)             # 2-60 chars
+    label: str                                  # 2-60 chars, unique within org
     smtp_host: str
     smtp_port: int = 587
     username: str
@@ -75,9 +84,10 @@ class EmailServer(SQLModel, table=True):
 class KpiModelCatalog(SQLModel, table=True):
     """Catalog of AI model files available to the org. A KPI can use one or more entries."""
     __tablename__ = "kpi_model_catalog"  # type: ignore[assignment]
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_kpi_model_catalog_org_id_name"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True)              # 2-60 chars
+    name: str                                   # 2-60 chars, unique within org
     model_path: str                             # path or URI to model weights
     confidence_threshold: float = 0.5          # 0.00-1.00
     enabled: bool = Field(default=True)

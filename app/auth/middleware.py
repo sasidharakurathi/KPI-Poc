@@ -11,7 +11,9 @@ _EXCLUDED_EXACT = {"/health", "/docs", "/redoc", "/openapi.json"}
 # header (see docs/IMPLEMENTATION_PLAN.md, Context item 4). Locking these down
 # would break the one part of the app that currently works end-to-end, so they
 # stay excluded from the hard gate even after auth is turned on globally.
-_EXCLUDED_PREFIXES = ("/api/videos/", "/api/settings/")
+# /media/ is also excluded: organization logos are public brand assets that
+# must render on a pre-login screen (see app.main's StaticFiles mount).
+_EXCLUDED_PREFIXES = ("/api/videos/", "/api/settings/", "/media/")
 
 
 def _is_excluded(path: str) -> bool:

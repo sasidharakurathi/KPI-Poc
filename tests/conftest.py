@@ -18,6 +18,12 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.as_posix()}"
 os.environ["JWT_SECRET_KEY"] = "test-only-secret-key-do-not-use-in-prod"
 os.environ["JWT_AUTH_ENABLED"] = "false"
 
+# Organization logo uploads (test_organization.py) must not write into the
+# real project's storage/logos/ directory — sandboxed the same way
+# DATABASE_URL is above, into a throwaway temp dir instead.
+_tmp_logos_dir = Path(tempfile.gettempdir()) / "vision_ai_phase0_test_logos"
+os.environ["LOGOS_DIR"] = str(_tmp_logos_dir)
+
 # Configured so every test's org registration auto-seeds a default
 # EmailServer (see auth_service._seed_default_email_server) — otherwise every
 # test that creates a user or requests a password reset would 422 on the
@@ -102,6 +108,7 @@ def client():
     test_app.add_middleware(JWTAuthMiddleware)
     test_app.include_router(auth_ep.router)
     test_app.include_router(org_ep.router)
+    test_app.include_router(org_ep.organizations_router)
     test_app.include_router(roles_ep.router)
     test_app.include_router(users_ep.router)
     test_app.include_router(priorities_ep.router)

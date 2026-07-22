@@ -32,6 +32,24 @@ def _login_as_limited_user(client, db_session, org_id, role_id, username="limite
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
+def _second_org_headers(client, db_session) -> dict:
+    """Registers a second, independent organization and returns Bearer
+    headers for its Owner — used to prove config rows are unique per-org,
+    not globally (see app/db/migrations.py's _migrate_multi_org_unique_constraints)."""
+    from .conftest import VALID_REGISTER_PAYLOAD, register_activate_login
+
+    payload = {
+        **VALID_REGISTER_PAYLOAD,
+        "company_name": "Globex Shipping",
+        "site_name": "Globex Yard",
+        "owner_full_name": "Bea Owner",
+        "owner_email": "bea.owner@example.com",
+        "username": "bea.owner",
+    }
+    body = register_activate_login(client, payload)
+    return {"Authorization": f"Bearer {body['access_token']}"}
+
+
 # ── Priorities ──────────────────────────────────────────────────────────────
 
 def test_priorities_require_auth(client):
@@ -77,6 +95,19 @@ def test_priority_duplicate_name_within_org_409(client, owner):
     client.post("/api/config/priorities", headers=owner["headers"], json={"name": "High", "color": "#F59E0B"})
     resp = client.post("/api/config/priorities", headers=owner["headers"], json={"name": "High", "color": "#F59E0B"})
     assert resp.status_code == 409
+
+
+def test_priority_same_name_across_orgs_allowed(client, owner, db_session):
+    """Multi-tenant: two different organizations must each be free to use
+    the same priority name — this used to be a global DB-level unique
+    constraint that would 409 the second org even though the app-level
+    duplicate check is (correctly) scoped to org_id."""
+    other_headers = _second_org_headers(client, db_session)
+    resp1 = client.post("/api/config/priorities", headers=owner["headers"], json={"name": "Critical", "color": "#FF0000"})
+    resp2 = client.post("/api/config/priorities", headers=other_headers, json={"name": "Critical", "color": "#FF0000"})
+    assert resp1.status_code == 201, resp1.text
+    assert resp2.status_code == 201, resp2.text
+    assert resp1.json()["org_id"] != resp2.json()["org_id"]
 
 
 # ── Zones ───────────────────────────────────────────────────────────────────
@@ -211,6 +242,19 @@ def test_email_server_is_default_exclusivity(client, owner):
     assert refreshed_first["is_default"] is False
 
 
+def test_email_server_same_label_across_orgs_allowed(client, owner, db_session):
+    other_headers = _second_org_headers(client, db_session)
+    body = {
+        "label": "Primary SMTP", "smtp_host": "smtp.example.com", "smtp_port": 587,
+        "username": "alerts@example.com", "password": "smtp-pass-123",
+        "from_address": "alerts@example.com", "from_name": "Vision AI Alerts",
+    }
+    resp1 = client.post("/api/config/email-servers", headers=owner["headers"], json=body)
+    resp2 = client.post("/api/config/email-servers", headers=other_headers, json=body)
+    assert resp1.status_code == 201, resp1.text
+    assert resp2.status_code == 201, resp2.text
+
+
 # ── KPI Models ──────────────────────────────────────────────────────────────
 
 def test_kpi_models_require_auth(client):
@@ -235,3 +279,25 @@ def test_kpi_models_list_includes_disabled_rows(client, owner):
     client.patch(f"/api/config/kpi-models/{created['id']}/toggle", headers=owner["headers"])
     listed = client.get("/api/config/kpi-models", headers=owner["headers"]).json()
     assert any(m["id"] == created["id"] and m["enabled"] is False for m in listed)
+
+
+def test_kpi_model_same_name_across_orgs_allowed(client, owner, db_session):
+    other_headers = _second_org_headers(client, db_session)
+    body = {"name": "fire_smoke_v2", "model_path": "/models/fire.pt"}
+    resp1 = client.post("/api/config/kpi-models", headers=owner["headers"], json=body)
+    resp2 = client.post("/api/config/kpi-models", headers=other_headers, json=body)
+    assert resp1.status_code == 201, resp1.text
+    assert resp2.status_code == 201, resp2.text
+
+
+# ── Roles: same name across orgs (a fresh org's own "Owner" role) ───────────
+
+def test_role_name_owner_across_orgs_allowed(client, owner, db_session):
+    """Every organization seeds its own role literally named "Owner" at
+    registration (app.services.auth_service.register_organization) — the
+    second org's registration would have IntegrityError'd here if Role.name
+    were still a global unique constraint instead of (org_id, name)."""
+    _second_org_headers(client, db_session)  # registration succeeding at all is the assertion
+    resp = client.get("/api/roles", headers=owner["headers"])
+    assert resp.status_code == 200, resp.text
+    assert any(r["name"] == "Owner" for r in resp.json())

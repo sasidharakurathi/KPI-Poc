@@ -1,7 +1,7 @@
 """Authentication endpoints — Phase 0.
 
 Implements:
-  POST /api/auth/register          Organization sign-up (one org per deployment)
+  POST /api/auth/register          Organization sign-up (multi-tenant — any number of orgs may register)
   POST /api/auth/activate          Consume the activation token (JSON)
   GET  /api/auth/activate          Same, for clicking the emailed link directly
   POST /api/auth/login             Username + password -> access + refresh tokens
