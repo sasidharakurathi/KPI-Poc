@@ -158,7 +158,7 @@ def test_upload_logo_requires_permission(client):
     assert resp.status_code == 401
 
 
-def test_upload_logo_succeeds_and_sets_logo_url_and_base64(client, db_session):
+def test_upload_logo_succeeds_and_sets_base64(client, db_session):
     token = _activated_owner_token(client, db_session)
     headers = {"Authorization": f"Bearer {token}"}
     image_bytes = _PNG_MAGIC + b"fake-but-good-enough"
@@ -169,16 +169,12 @@ def test_upload_logo_succeeds_and_sets_logo_url_and_base64(client, db_session):
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["logo_url"] is not None
-    assert body["logo_url"].endswith(".png")
     # the upload response itself echoes the saved image back as base64 —
     # decoding it must round-trip to exactly what was saved
     assert _b64.b64decode(body["logo_base64"]) == image_bytes
 
-    # GET reflects the same logo_url AND logo_base64 afterwards — not just
-    # the upload response.
+    # GET reflects the same logo_base64 afterwards — not just the upload response.
     get_resp = client.get("/api/organization", headers=headers)
-    assert get_resp.json()["logo_url"] == body["logo_url"]
     assert _b64.b64decode(get_resp.json()["logo_base64"]) == image_bytes
 
 
@@ -190,7 +186,7 @@ def test_upload_logo_accepts_data_uri_prefix(client, db_session):
 
     resp = client.post("/api/organization/logo", headers=headers, json={"logo_base64": data_uri})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["logo_url"].endswith(".jpg")
+    assert _b64.b64decode(resp.json()["logo_base64"]) == image_bytes
 
 
 def test_upload_logo_replaces_previous_file(client, db_session):
@@ -199,23 +195,32 @@ def test_upload_logo_replaces_previous_file(client, db_session):
     token = _activated_owner_token(client, db_session)
     headers = {"Authorization": f"Bearer {token}"}
 
+    before = set(settings.LOGOS_DIR.glob("*")) if settings.LOGOS_DIR.exists() else set()
     first = client.post(
         "/api/organization/logo", headers=headers,
         json={"logo_base64": _b64_of(_PNG_MAGIC + b"first-logo-bytes")},
     )
-    first_filename = first.json()["logo_url"].rsplit("/", 1)[-1]
-    assert (settings.LOGOS_DIR / first_filename).exists()
+    assert first.status_code == 200, first.text
+    after_first = set(settings.LOGOS_DIR.glob("*"))
+    first_files = after_first - before
+    assert len(first_files) == 1
+    first_path = next(iter(first_files))
+    assert first_path.exists()
 
     second = client.post(
         "/api/organization/logo", headers=headers,
         json={"logo_base64": _b64_of(_PNG_MAGIC + b"second-logo-bytes")},
     )
-    second_filename = second.json()["logo_url"].rsplit("/", 1)[-1]
-    assert second_filename != first_filename
-    assert (settings.LOGOS_DIR / second_filename).exists()
-    assert not (settings.LOGOS_DIR / first_filename).exists()
+    assert second.status_code == 200, second.text
+    after_second = set(settings.LOGOS_DIR.glob("*"))
+    second_files = after_second - after_first
+    assert len(second_files) == 1
+    second_path = next(iter(second_files))
+    assert second_path != first_path
+    assert second_path.exists()
+    assert not first_path.exists()  # old file removed on replace
 
-    (settings.LOGOS_DIR / second_filename).unlink(missing_ok=True)  # test cleanup
+    second_path.unlink(missing_ok=True)  # test cleanup
 
 
 def test_upload_logo_rejects_unrecognized_image_data(client, db_session):

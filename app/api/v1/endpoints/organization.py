@@ -20,11 +20,12 @@ Organization row carries its site fields (site_name/site_address/latitude/
 longitude) directly.
 
 The logo endpoint takes base64 (JSON body), not a multipart file upload —
-simpler for the frontend (no separate FormData request), and it still saves
-the decoded image to disk under settings.LOGOS_DIR / served publicly at
-/media/logos/... (see logo_url below), the same as before. The image type is
-determined by sniffing the decoded bytes' own magic number rather than
-trusting a client-declared content type.
+simpler for the frontend (no separate FormData request). The decoded image
+is saved to disk under settings.LOGOS_DIR for persistence, and read back as
+base64 on every response (logo_base64) — there is no logo_url; callers get
+the image data directly rather than a link to fetch it separately. The image
+type is determined by sniffing the decoded bytes' own magic number rather
+than trusting a client-declared content type.
 
 Models used: Organization (app.db.models.organization)
 Schemas: OrganizationResponse, OrganizationUpdate, OrganizationLogoUpload (app.schemas.organization)
@@ -87,7 +88,6 @@ def _get_own_org(db: DbSession, user: dict) -> Organization:
 
 
 def _to_organization_response(org: Organization) -> OrganizationResponse:
-    # logo_url = f"{settings.PUBLIC_BASE_URL}/media/logos/{org.logo_path}" if org.logo_path else None
     logo_base64 = None
     if org.logo_path:
         try:
@@ -104,7 +104,6 @@ def _to_organization_response(org: Organization) -> OrganizationResponse:
         site_address=org.site_address,
         latitude=org.latitude,
         longitude=org.longitude,
-        # logo_url=logo_url,
         logo_base64=logo_base64,
         created_at=org.created_at,
     )
