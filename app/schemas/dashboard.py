@@ -15,6 +15,8 @@ class DashboardSummaryResponse(BaseModel):
     inactive_cameras: int
     pending_cameras: int
     total_zones: int
+    active_kpi_models: int  # enabled rows in the org's KPI Models catalog (app.db.models.domain_config.KpiModelCatalog)
+    active_kpis: int  # enabled rows in the org's KPI Management catalog (app.db.models.kpi_configuration.KPIConfiguration)
     total_alerts: int
     alerts_last_24h: int
     alerts_by_priority: dict[str, int]

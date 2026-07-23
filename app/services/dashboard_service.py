@@ -16,9 +16,12 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import HTTPException, status
+from sqlalchemy import func as _func
 from sqlmodel import Session, select
 
 from app.db.models import Alert, Camera, Priority, Zone
+from app.db.models.domain_config import KpiModelCatalog
+from app.db.models.kpi_configuration import KPIConfiguration
 from app.schemas.dashboard import (
     AlertChartPoint, AlertChartResponse, DashboardCameraItem,
     DashboardCamerasResponse, DashboardSummaryResponse,
@@ -69,12 +72,35 @@ def get_summary(db: Session, user: dict) -> DashboardSummaryResponse:
 
     total_zones = len(db.exec(select(Zone).where(Zone.org_id == org_id)).all())
 
+    # Org-wide, like total_zones — neither catalog is tied to any
+    # camera/zone, so this caller's zone-scoping doesn't affect either count.
+    active_kpi_models = db.exec(
+        select(_func.count()).select_from(KpiModelCatalog).where(
+            KpiModelCatalog.org_id == org_id, KpiModelCatalog.enabled == True,  # noqa: E712
+        )
+    ).one()
+
+    # Distinct from active_kpi_models above: this counts entries in the KPI
+    # Management catalog (Configuration > KPI Management, "which detection
+    # capabilities are turned on" — fire_smoke/ppe/etc., seeded via
+    # scripts/seed_kpi_catalog.py), not the KPI Models/detection-model file
+    # catalog. enable_status defaults to True at the column level, but a
+    # never-created row (no catalog entry yet for a given KPI) isn't counted
+    # as active — only rows that actually exist.
+    active_kpis = db.exec(
+        select(_func.count()).select_from(KPIConfiguration).where(
+            KPIConfiguration.org_id == org_id, KPIConfiguration.enable_status == True,  # noqa: E712
+        )
+    ).one()
+
     return DashboardSummaryResponse(
         total_cameras=len(cameras),
         active_cameras=status_counts.get("active", 0),
         inactive_cameras=status_counts.get("inactive", 0),
         pending_cameras=status_counts.get("pending", 0),
         total_zones=total_zones,
+        active_kpi_models=active_kpi_models,
+        active_kpis=active_kpis,
         total_alerts=len(alerts),
         alerts_last_24h=alerts_last_24h,
         alerts_by_priority=alerts_by_priority,

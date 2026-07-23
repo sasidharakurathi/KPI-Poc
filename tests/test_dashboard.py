@@ -89,6 +89,87 @@ def test_dashboard_summary_counts(client, owner):
     assert body["pending_cameras"] >= 2
 
 
+def test_dashboard_summary_active_kpi_models_count(client, owner):
+    m1 = client.post(
+        "/api/config/kpi-models", headers=owner["headers"],
+        json={"name": "Dash KPI Model 1", "model_path": "/models/a.pt"},
+    ).json()
+    client.post(
+        "/api/config/kpi-models", headers=owner["headers"],
+        json={"name": "Dash KPI Model 2", "model_path": "/models/b.pt"},
+    )
+    disabled = client.post(
+        "/api/config/kpi-models", headers=owner["headers"],
+        json={"name": "Dash KPI Model 3", "model_path": "/models/c.pt"},
+    ).json()
+    client.patch(f"/api/config/kpi-models/{disabled['id']}/toggle", headers=owner["headers"])  # -> disabled
+
+    resp = client.get("/api/dashboard/summary", headers=owner["headers"])
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["active_kpi_models"] == 2
+
+    client.patch(f"/api/config/kpi-models/{m1['id']}/toggle", headers=owner["headers"])  # -> disabled
+    resp2 = client.get("/api/dashboard/summary", headers=owner["headers"])
+    assert resp2.json()["active_kpi_models"] == 1
+
+
+def test_dashboard_summary_active_kpi_models_not_zone_scoped(client, owner, db_session):
+    """The KPI Models catalog isn't tied to any camera/zone, so a
+    zone-restricted role still sees the org-wide count, unlike total_cameras."""
+    client.post(
+        "/api/config/kpi-models", headers=owner["headers"],
+        json={"name": "Org-wide KPI Model", "model_path": "/models/d.pt"},
+    )
+    zone_a = _make_zone(client, owner["headers"], "KPI Models Zone A")
+    role = _create_zone_restricted_role(db_session, int(owner["org_id"]), zone_a)
+    token = _login_as(client, db_session, int(owner["org_id"]), role.id, "kpi.models.zone.guard")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.get("/api/dashboard/summary", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["active_kpi_models"] == 1
+
+
+def test_dashboard_summary_active_kpis_count(client, owner):
+    """Distinct from active_kpi_models: this counts the KPI Management
+    catalog (KPIConfiguration — fire_smoke/ppe/etc.), not the KPI Models/
+    detection-model file catalog."""
+    from app.kpis import list_registered_names
+
+    names = list_registered_names()
+    assert len(names) >= 2
+    name_a, name_b = names[0], names[1]
+
+    client.put(f"/api/kpis/catalog/{name_a}", headers=owner["headers"], json={"config": {}})
+    client.put(f"/api/kpis/catalog/{name_b}", headers=owner["headers"], json={"config": {}})
+
+    resp = client.get("/api/dashboard/summary", headers=owner["headers"])
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["active_kpis"] == 2
+
+    client.patch(f"/api/kpis/catalog/{name_a}/toggle", headers=owner["headers"])  # -> disabled
+    resp2 = client.get("/api/dashboard/summary", headers=owner["headers"])
+    assert resp2.json()["active_kpis"] == 1
+
+
+def test_dashboard_summary_active_kpis_not_zone_scoped(client, owner, db_session):
+    """The KPI Management catalog isn't tied to any camera/zone, so a
+    zone-restricted role still sees the org-wide count."""
+    from app.kpis import list_registered_names
+
+    name = list_registered_names()[0]
+    client.put(f"/api/kpis/catalog/{name}", headers=owner["headers"], json={"config": {}})
+
+    zone_a = _make_zone(client, owner["headers"], "Active KPIs Zone A")
+    role = _create_zone_restricted_role(db_session, int(owner["org_id"]), zone_a)
+    token = _login_as(client, db_session, int(owner["org_id"]), role.id, "active.kpis.zone.guard")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.get("/api/dashboard/summary", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["active_kpis"] == 1
+
+
 def test_dashboard_summary_zone_scoped(client, owner, db_session):
     zone_a = _make_zone(client, owner["headers"], "Scoped Zone A")
     zone_b = _make_zone(client, owner["headers"], "Scoped Zone B")
