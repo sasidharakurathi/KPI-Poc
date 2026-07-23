@@ -87,7 +87,7 @@ def _get_own_org(db: DbSession, user: dict) -> Organization:
 
 
 def _to_organization_response(org: Organization) -> OrganizationResponse:
-    logo_url = f"{settings.PUBLIC_BASE_URL}/media/logos/{org.logo_path}" if org.logo_path else None
+    # logo_url = f"{settings.PUBLIC_BASE_URL}/media/logos/{org.logo_path}" if org.logo_path else None
     logo_base64 = None
     if org.logo_path:
         try:
@@ -104,7 +104,7 @@ def _to_organization_response(org: Organization) -> OrganizationResponse:
         site_address=org.site_address,
         latitude=org.latitude,
         longitude=org.longitude,
-        logo_url=logo_url,
+        # logo_url=logo_url,
         logo_base64=logo_base64,
         created_at=org.created_at,
     )

@@ -17,7 +17,7 @@ class OrganizationResponse(BaseModel):
     site_address: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    logo_url: Optional[str] = None
+    # logo_url: Optional[str] = None
     # Populated on every response whenever the org has a logo (re-read from
     # disk and base64-encoded each time — see
     # app.api.v1.endpoints.organization._to_organization_response), not just
