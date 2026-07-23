@@ -21,9 +21,11 @@ AlertFrame field the same way the real pipeline would have, then assigns each
 randomized-but-plausible timestamp, since the original camera/timing metadata
 isn't recoverable from the files alone.
 
-THIS IS DESTRUCTIVE: every existing row in jobs/alerts/alert_frames is
-deleted first (see module docstring's "Clears" — printed with counts before
-anything happens). Camera/Zone/Priority/User/etc. tables are untouched.
+THIS IS DESTRUCTIVE, but scoped to the target org: every existing jobs/
+alerts/alert_frames row tied to the target org's cameras is deleted first
+(printed with counts before anything happens) — other organizations' alert
+history on the same deployment is untouched. Camera/Zone/Priority/User/etc.
+tables are untouched everywhere.
 
 Usage:
     python scripts/seed_alerts_from_storage.py                # first org, real run
@@ -110,18 +112,34 @@ def _rel(path: Path) -> str:
     return str(path.resolve().relative_to(BASE_DIR.resolve()))
 
 
-def clear_existing(session: Session) -> tuple[int, int, int]:
-    frame_count = session.exec(select(AlertFrame)).all()
-    alert_count = session.exec(select(Alert)).all()
-    job_count = session.exec(select(Job)).all()
-    for row in frame_count:
+def _org_scoped_rows(session: Session, org: Organization) -> tuple[list[Alert], list[Job]]:
+    """Every Alert/Job tied to this org's cameras — via Alert.camera_id
+    directly, or Job.camera_id (covers a job row with no alerts, e.g. one
+    that failed before producing any detection)."""
+    camera_ids = set(session.exec(select(Camera.camera_id).where(Camera.org_id == org.id)).all())
+    if not camera_ids:
+        return [], []
+    alerts = session.exec(select(Alert).where(Alert.camera_id.in_(camera_ids))).all()
+    job_ids = {a.job_id for a in alerts if a.job_id} | set(
+        session.exec(select(Job.job_id).where(Job.camera_id.in_(camera_ids))).all()
+    )
+    jobs = session.exec(select(Job).where(Job.job_id.in_(job_ids))).all() if job_ids else []
+    return list(alerts), list(jobs)
+
+
+def clear_existing(session: Session, org: Organization) -> tuple[int, int, int]:
+    alerts, jobs = _org_scoped_rows(session, org)
+    alert_ids = {a.id for a in alerts}
+    frames = session.exec(select(AlertFrame).where(AlertFrame.alert_id.in_(alert_ids))).all() if alert_ids else []
+
+    for row in frames:
         session.delete(row)
-    for row in alert_count:
+    for row in alerts:
         session.delete(row)
-    for row in job_count:
+    for row in jobs:
         session.delete(row)
     session.commit()
-    return len(frame_count), len(alert_count), len(job_count)
+    return len(frames), len(alerts), len(jobs)
 
 
 def seed(session: Session, org: Organization, events: list[_ParsedEvent], *, dry_run: bool) -> tuple[int, int, int]:
@@ -215,14 +233,19 @@ def main() -> None:
                 print("No organizations exist yet — nothing to seed into.")
                 return
 
-        old_frames, old_alerts, old_jobs = len(session.exec(select(AlertFrame)).all()), \
-            len(session.exec(select(Alert)).all()), len(session.exec(select(Job)).all())
-        print(f"Existing rows that will be cleared: {old_jobs} jobs, {old_alerts} alerts, {old_frames} alert_frames.")
+        old_alerts, old_jobs = _org_scoped_rows(session, org)
+        old_alert_ids = {a.id for a in old_alerts}
+        old_frames = session.exec(select(AlertFrame).where(AlertFrame.alert_id.in_(old_alert_ids))).all() if old_alert_ids else []
+        print(
+            f"Existing rows for organization {org.id} ({org.org_id}) that will be cleared: "
+            f"{len(old_jobs)} jobs, {len(old_alerts)} alerts, {len(old_frames)} alert_frames. "
+            f"(Other organizations' rows are untouched.)"
+        )
 
         if args.dry_run:
             print("DRY RUN — not clearing or writing anything.")
         else:
-            cleared_frames, cleared_alerts, cleared_jobs = clear_existing(session)
+            cleared_frames, cleared_alerts, cleared_jobs = clear_existing(session, org)
             print(f"Cleared {cleared_jobs} jobs, {cleared_alerts} alerts, {cleared_frames} alert_frames.")
 
         print(f"Seeding into organization {org.id} ({org.org_id}):")
