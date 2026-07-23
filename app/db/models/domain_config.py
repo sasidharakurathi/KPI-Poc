@@ -1,11 +1,17 @@
 """Reference-data tables: Priority, Timezone, Zone, EmailServer, KpiModelCatalog.
 These are the Phase 1 Configuration module tables from the PRD.
 
-Priority.name / EmailServer.label / KpiModelCatalog.name are unique per
-organization, not globally — enforced via a composite (org_id, name) unique
-constraint rather than a single-column one, since this platform hosts
-multiple organizations and two different orgs must each be free to use
-"Critical" as a priority name, "Primary SMTP" as an email server label, etc.
+Priority.name / EmailServer.label are unique per organization, not globally
+— enforced via a composite (org_id, name) unique constraint rather than a
+single-column one, since this platform hosts multiple organizations and two
+different orgs must each be free to use "Critical" as a priority name,
+"Primary SMTP" as an email server label, etc.
+
+KpiModelCatalog is the one exception: it's a single shared catalog of
+detection-model files across every organization on the deployment (there's
+one physical model file per KPI regardless of tenant count), so its name is
+globally unique. org_id is left on the column — additive-only migration
+policy — but is no longer read or written by any endpoint.
 """
 from datetime import datetime
 from typing import Optional
@@ -82,15 +88,17 @@ class EmailServer(SQLModel, table=True):
 
 
 class KpiModelCatalog(SQLModel, table=True):
-    """Catalog of AI model files available to the org. A KPI can use one or more entries."""
+    """Catalog of AI model files, shared across every organization on this
+    deployment — not org-scoped (see module docstring)."""
     __tablename__ = "kpi_model_catalog"  # type: ignore[assignment]
-    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_kpi_model_catalog_org_id_name"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str                                   # 2-60 chars, unique within org
+    name: str = Field(unique=True)              # 2-60 chars, globally unique
     model_path: str                             # path or URI to model weights
     confidence_threshold: float = 0.5          # 0.00-1.00
     enabled: bool = Field(default=True)
+    # Superseded — this catalog is shared across every org now. Left in
+    # place, unused, per this project's additive-only migration policy.
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: Optional[str] = None

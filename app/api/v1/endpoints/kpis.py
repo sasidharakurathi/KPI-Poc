@@ -67,6 +67,10 @@ async def update_kpi_settings(name: str, updates: Annotated[dict[str, Any], Body
 # through to config.json, which is what the real detection pipeline reads —
 # an entry with no real detector behind it would have nothing to write to.
 #
+# One row per KPI, shared across every organization (not org-scoped — see
+# app.db.models.kpi_configuration.KPIConfiguration's docstring): there's a
+# single real detection pipeline behind each KPI regardless of tenant count.
+#
 # config (parameters) and enabled changes write through to config.json via
 # app.config_loader.update_kpi_config(), so changes here actually affect the
 # next detection run. model_ids does NOT write through — config.json holds a
@@ -80,14 +84,14 @@ def _registered_class_or_404(name: str):
     return cls
 
 
-def _validate_model_ids(session: DbSession, org_id, model_ids: list[str]) -> list[str]:
+def _validate_model_ids(session: DbSession, model_ids: list[str]) -> list[str]:
     for raw in model_ids:
         try:
             model_id = int(raw)
         except (TypeError, ValueError):
             raise HTTPException(status_code=422, detail=f"Invalid model id: {raw!r}")
         model = session.get(KpiModelCatalog, model_id)
-        if model is None or model.org_id != org_id:
+        if model is None:
             raise HTTPException(status_code=422, detail=f"model_ids contains an unknown detection model: {raw!r}")
     return model_ids
 
@@ -112,9 +116,7 @@ async def list_kpi_catalog(
     session: DbSession,
     user: dict = Depends(require_permission("kpi_management", "view")),
 ):
-    configs = session.exec(
-        select(KPIConfiguration).where(KPIConfiguration.org_id == user.get("org_id"))
-    ).all()
+    configs = session.exec(select(KPIConfiguration)).all()
     return [_to_catalog_response(c) for c in configs]
 
 
@@ -125,9 +127,7 @@ async def get_kpi_catalog(
     user: dict = Depends(require_permission("kpi_management", "view")),
 ):
     config = session.exec(
-        select(KPIConfiguration).where(
-            KPIConfiguration.kpi_name == name, KPIConfiguration.org_id == user.get("org_id"),
-        )
+        select(KPIConfiguration).where(KPIConfiguration.kpi_name == name)
     ).first()
     if not config:
         raise HTTPException(status_code=404, detail="KPI Configuration not found.")
@@ -142,20 +142,17 @@ async def update_kpi_catalog(
     user: dict = Depends(require_permission("kpi_management", "edit")),
 ):
     cls = _registered_class_or_404(name)
-    org_id = user.get("org_id")
     actor = user.get("username")
 
     config = session.exec(
-        select(KPIConfiguration).where(
-            KPIConfiguration.kpi_name == name, KPIConfiguration.org_id == org_id,
-        )
+        select(KPIConfiguration).where(KPIConfiguration.kpi_name == name)
     ).first()
 
     if not config:
-        config = KPIConfiguration(kpi_name=name, org_id=org_id, created_by=actor)
+        config = KPIConfiguration(kpi_name=name, created_by=actor)
 
     if payload.model_ids is not None:
-        config.assigned_models = _validate_model_ids(session, org_id, payload.model_ids)
+        config.assigned_models = _validate_model_ids(session, payload.model_ids)
     if payload.config is not None:
         config.parameters = payload.config
     if payload.description is not None:
@@ -188,9 +185,7 @@ async def toggle_kpi_catalog(
 ):
     cls = _registered_class_or_404(name)
     config = session.exec(
-        select(KPIConfiguration).where(
-            KPIConfiguration.kpi_name == name, KPIConfiguration.org_id == user.get("org_id"),
-        )
+        select(KPIConfiguration).where(KPIConfiguration.kpi_name == name)
     ).first()
     if not config:
         raise HTTPException(status_code=404, detail="KPI Configuration not found.")

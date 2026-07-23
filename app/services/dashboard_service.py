@@ -56,8 +56,12 @@ def get_summary(db: Session, user: dict) -> DashboardSummaryResponse:
         status_counts[c.connectivity_status] = status_counts.get(c.connectivity_status, 0) + 1
         priority_name_by_camera[c.camera_id] = priorities_by_id.get(c.priority_id, "Unassigned")
 
+    # org_id is the real tenant boundary — always applied, regardless of
+    # zone-scoping (allowed=None for an unrestricted role must never mean
+    # "see every organization's alerts", only "see every zone within my
+    # own org"). allowed narrows further within that org when set.
     allowed = allowed_camera_ids_for_user(user, db)
-    alerts_stmt = select(Alert)
+    alerts_stmt = select(Alert).where(Alert.org_id == org_id)
     if allowed is not None:
         alerts_stmt = alerts_stmt.where(Alert.camera_id.in_(allowed))
     alerts = db.exec(alerts_stmt).all()
@@ -72,24 +76,25 @@ def get_summary(db: Session, user: dict) -> DashboardSummaryResponse:
 
     total_zones = len(db.exec(select(Zone).where(Zone.org_id == org_id)).all())
 
-    # Org-wide, like total_zones — neither catalog is tied to any
-    # camera/zone, so this caller's zone-scoping doesn't affect either count.
+    # Global counts, shared across every organization on the deployment —
+    # KpiModelCatalog and KPIConfiguration are no longer org-scoped tables
+    # (see both models' docstrings), so these are deployment-wide facts, not
+    # per-org ones.
     active_kpi_models = db.exec(
         select(_func.count()).select_from(KpiModelCatalog).where(
-            KpiModelCatalog.org_id == org_id, KpiModelCatalog.enabled == True,  # noqa: E712
+            KpiModelCatalog.enabled == True,  # noqa: E712
         )
     ).one()
 
     # Distinct from active_kpi_models above: this counts entries in the KPI
-    # Management catalog (Configuration > KPI Management, "which detection
-    # capabilities are turned on" — fire_smoke/ppe/etc., seeded via
-    # scripts/seed_kpi_catalog.py), not the KPI Models/detection-model file
-    # catalog. enable_status defaults to True at the column level, but a
-    # never-created row (no catalog entry yet for a given KPI) isn't counted
-    # as active — only rows that actually exist.
+    # Management catalog ("which detection capabilities are turned on" —
+    # fire_smoke/ppe/etc., seeded via scripts/seed_kpi_catalog.py), not the
+    # KPI Models/detection-model file catalog. enable_status defaults to
+    # True at the column level, but a never-created row (no catalog entry
+    # yet for a given KPI) isn't counted as active — only rows that exist.
     active_kpis = db.exec(
         select(_func.count()).select_from(KPIConfiguration).where(
-            KPIConfiguration.org_id == org_id, KPIConfiguration.enable_status == True,  # noqa: E712
+            KPIConfiguration.enable_status == True,  # noqa: E712
         )
     ).one()
 
@@ -157,6 +162,17 @@ def get_cameras(db: Session, user: dict) -> DashboardCamerasResponse:
         if priority_ids else {}
     )
 
+    # One query for every visible camera's alerts, bucketed by (camera_id,
+    # year) in Python — same day-bucketing approach as get_alert_chart
+    # above, just grouped by year and across every camera instead of one.
+    camera_ids = [c.camera_id for c in cameras]
+    alerts_by_year_by_camera: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    if camera_ids:
+        alerts = db.exec(select(Alert).where(Alert.camera_id.in_(camera_ids))).all()
+        for a in alerts:
+            year = str(a.created_at.year)
+            alerts_by_year_by_camera[a.camera_id][year] += 1
+
     items = []
     for c in cameras:
         zone = zones_by_id.get(c.zone_id)
@@ -171,6 +187,7 @@ def get_cameras(db: Session, user: dict) -> DashboardCamerasResponse:
             status="active" if c.enabled else "inactive",
             connectivity_status=c.connectivity_status,
             stream_status=stream_status,
+            alerts_by_year=dict(alerts_by_year_by_camera.get(c.camera_id, {})),
         ))
 
     return DashboardCamerasResponse(count=len(items), cameras=items)

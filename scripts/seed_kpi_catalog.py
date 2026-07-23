@@ -1,3 +1,24 @@
+"""Seeds a KPIConfiguration catalog row for every registered detector
+(app.kpis.registry) — one global row per KPI, shared across every
+organization on this deployment (see app.db.models.kpi_configuration
+.KPIConfiguration's docstring; there's a single real detection pipeline
+behind each KPI regardless of tenant count).
+
+Without this, GET /api/kpis/catalog is empty until someone manually PUTs
+each of the 11 registered detectors one at a time — this does that in bulk,
+using each detector's live config.json block as the starting `parameters`
+value so the DB row matches what the pipeline is actually running today.
+
+Idempotent: a KPI that already has a row is left untouched (use --force to
+overwrite parameters/enabled from config.json anyway; category/description
+are never overwritten by --force, since those may have been hand-edited via
+the API).
+
+Usage:
+    python scripts/seed_kpi_catalog.py                # seed every missing KPI
+    python scripts/seed_kpi_catalog.py --force         # refresh parameters/enabled from config.json
+    python scripts/seed_kpi_catalog.py --dry-run        # show what would change, write nothing
+"""
 import argparse
 import sys
 from pathlib import Path
@@ -8,11 +29,12 @@ from sqlmodel import Session, select
 
 from app.config_loader import get_kpi_config, get_kpi_param
 from app.db.engine import get_engine
-from app.db.models import Organization
 from app.db.models.kpi_configuration import KPIConfiguration
 from app.kpis import get_registry
 
-
+# Sensible defaults for the 11 KPIs currently registered — category must be
+# one of KPI_CATEGORIES (app.schemas.kpi). Anything registered later that
+# isn't listed here falls back to ("operations", "") rather than failing.
 _METADATA: dict[str, tuple[str, str]] = {
     "fire_smoke":      ("safety",     "Detects fire and smoke events in camera feeds."),
     "ppe":             ("safety",     "Detects personal protective equipment compliance (helmets, vests, etc.)."),
@@ -29,15 +51,13 @@ _METADATA: dict[str, tuple[str, str]] = {
 _DEFAULT_METADATA = ("operations", "")
 
 
-def seed(session: Session, org: Organization, *, force: bool, dry_run: bool) -> tuple[int, int, int]:
-    """Returns (created, refreshed, skipped) counts for this org."""
+def seed(session: Session, *, force: bool, dry_run: bool) -> tuple[int, int, int]:
+    """Returns (created, refreshed, skipped) counts."""
     created = refreshed = skipped = 0
 
     for cls in get_registry().values():
         existing = session.exec(
-            select(KPIConfiguration).where(
-                KPIConfiguration.kpi_name == cls.name, KPIConfiguration.org_id == org.id,
-            )
+            select(KPIConfiguration).where(KPIConfiguration.kpi_name == cls.name)
         ).first()
 
         parameters = get_kpi_config(cls.__name__)
@@ -45,17 +65,17 @@ def seed(session: Session, org: Organization, *, force: bool, dry_run: bool) -> 
         category, description = _METADATA.get(cls.name, _DEFAULT_METADATA)
 
         if existing is None:
-            print(f"  [{org.org_id}] + {cls.name:<20} ({cls.display_name}) -> category={category}, enabled={enabled}")
+            print(f"  + {cls.name:<20} ({cls.display_name}) -> category={category}, enabled={enabled}")
             created += 1
             if not dry_run:
                 session.add(KPIConfiguration(
-                    kpi_name=cls.name, org_id=org.id,
+                    kpi_name=cls.name,
                     description=description, category=category,
                     parameters=parameters, enable_status=enabled,
                     created_by="seed_kpi_catalog.py",
                 ))
         elif force:
-            print(f"  [{org.org_id}] ~ {cls.name:<20} refreshing parameters/enabled from config.json")
+            print(f"  ~ {cls.name:<20} refreshing parameters/enabled from config.json")
             refreshed += 1
             if not dry_run:
                 existing.parameters = parameters
@@ -70,39 +90,18 @@ def seed(session: Session, org: Organization, *, force: bool, dry_run: bool) -> 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--org-id", type=int, default=None, help="Seed only this organization (default: every org).")
     parser.add_argument("--force", action="store_true", help="Refresh parameters/enabled on existing rows from config.json.")
     parser.add_argument("--dry-run", action="store_true", help="Print what would happen without writing anything.")
     args = parser.parse_args()
 
     with Session(get_engine()) as session:
-        if args.org_id is not None:
-            org = session.get(Organization, args.org_id)
-            if org is None:
-                print(f"No organization with id={args.org_id}.")
-                return
-            orgs = [org]
-        else:
-            orgs = list(session.exec(select(Organization).order_by(Organization.id)).all())
-
-        if not orgs:
-            print("No organizations exist yet — nothing to seed.")
-            return
-
-        total_created = total_refreshed = total_skipped = 0
-        for org in orgs:
-            print(f"Organization {org.id} ({org.org_id}):")
-            created, refreshed, skipped = seed(session, org, force=args.force, dry_run=args.dry_run)
-            total_created += created
-            total_refreshed += refreshed
-            total_skipped += skipped
+        created, refreshed, skipped = seed(session, force=args.force, dry_run=args.dry_run)
 
         if not args.dry_run:
             session.commit()
 
         mode = "DRY RUN — " if args.dry_run else ""
-        print(f"\n{mode}{total_created} created, {total_refreshed} refreshed, {total_skipped} already present, "
-              f"across {len(orgs)} organization(s).")
+        print(f"\n{mode}{created} created, {refreshed} refreshed, {skipped} already present.")
 
 
 if __name__ == "__main__":

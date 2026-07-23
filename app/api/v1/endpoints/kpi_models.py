@@ -9,8 +9,10 @@ Implements:
 
 No Edit action by design (PRD 3.5): disable the wrong one, create a new entry.
 
-org_id is always derived from the authenticated caller (require_permission),
-never from the request body.
+Shared across every organization on this deployment, not org-scoped — see
+app.db.models.domain_config.KpiModelCatalog's docstring. Every endpoint here
+still requires authentication + the "configuration" permission, just not
+ownership of a specific org's row (there isn't one).
 
 Models used: KpiModelCatalog (app.db.models.domain_config)
 Schemas: KpiModelCreate, KpiModelResponse (app.schemas.config)
@@ -31,10 +33,8 @@ async def list_kpi_models(
     session: DbSession,
     user: dict = Depends(require_permission("configuration", "view")),
 ):
-    """List every catalog entry for the caller's org, enabled or disabled."""
-    models = session.exec(
-        select(KpiModelCatalog).where(KpiModelCatalog.org_id == user.get("org_id")).order_by(KpiModelCatalog.id)
-    ).all()
+    """List every catalog entry, enabled or disabled."""
+    models = session.exec(select(KpiModelCatalog).order_by(KpiModelCatalog.id)).all()
     return models
 
 
@@ -44,14 +44,13 @@ async def create_kpi_model(
     session: DbSession,
     user: dict = Depends(require_permission("configuration", "create")),
 ):
-    org_id = user.get("org_id")
     existing = session.exec(
-        select(KpiModelCatalog).where(KpiModelCatalog.org_id == org_id, KpiModelCatalog.name == model_in.name)
+        select(KpiModelCatalog).where(KpiModelCatalog.name == model_in.name)
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail=f"KPI model with name '{model_in.name}' already exists.")
 
-    model = KpiModelCatalog(**model_in.model_dump(exclude_unset=True), org_id=org_id)
+    model = KpiModelCatalog(**model_in.model_dump(exclude_unset=True))
     session.add(model)
     try:
         session.commit()
@@ -70,7 +69,7 @@ async def get_kpi_model(
     user: dict = Depends(require_permission("configuration", "view")),
 ):
     model = session.get(KpiModelCatalog, id)
-    if not model or model.org_id != user.get("org_id"):
+    if not model:
         raise HTTPException(status_code=404, detail="KPI model not found.")
     return model
 
@@ -82,7 +81,7 @@ async def delete_kpi_model(
     user: dict = Depends(require_permission("configuration", "delete")),
 ):
     model = session.get(KpiModelCatalog, id)
-    if not model or model.org_id != user.get("org_id"):
+    if not model:
         raise HTTPException(status_code=404, detail="KPI model not found.")
 
     # PRD §3.5: "Delete is only available when no KPI currently references
@@ -109,7 +108,7 @@ async def toggle_kpi_model(
     user: dict = Depends(require_permission("configuration", "edit")),
 ):
     model = session.get(KpiModelCatalog, id)
-    if not model or model.org_id != user.get("org_id"):
+    if not model:
         raise HTTPException(status_code=404, detail="KPI model not found.")
 
     model.enabled = not model.enabled

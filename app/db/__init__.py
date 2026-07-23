@@ -58,6 +58,12 @@ def create_alert(
     for video-detection alerts). Pass it explicitly for alerts with no job at
     all — e.g. app.services.camera_heartbeat's connectivity alerts.
 
+    org_id is always resolved from the camera (never accepted as a param —
+    there's no legitimate caller that would know an org_id but not go
+    through a real camera) so every alert can be filtered by org without a
+    join at query time. A camera-less alert has no org either, and is
+    invisible to every org-scoped query — see app.services.alert_service.
+
     Broadcasts 'alert.created' over the realtime websocket (Phase 4) after
     committing — best-effort, never allowed to fail the alert itself."""
     with get_session_ctx() as session:
@@ -66,8 +72,13 @@ def create_alert(
             job = session.get(Job, job_id)
             resolved_camera_id = job.camera_id if job else None
 
+        resolved_org_id = None
+        if resolved_camera_id:
+            camera = session.get(Camera, resolved_camera_id)
+            resolved_org_id = camera.org_id if camera else None
+
         alert = Alert(
-            job_id=job_id, camera_id=resolved_camera_id,
+            job_id=job_id, camera_id=resolved_camera_id, org_id=resolved_org_id,
             kpi_name=kpi_name, alert_type=alert_type,
             frame_idx=frame_idx, confidence=confidence, extra=extra,
             created_at=datetime.utcnow(),
@@ -82,7 +93,9 @@ def create_alert(
         from app.schemas.alert import AlertResponse
 
         payload = AlertResponse.model_validate(alert_dict).model_dump(mode="json")
-        ws_manager.broadcast_threadsafe("alert.created", payload, camera_id=resolved_camera_id)
+        ws_manager.broadcast_threadsafe(
+            "alert.created", payload, camera_id=resolved_camera_id, org_id=resolved_org_id,
+        )
     except Exception:
         logger.exception("[db] failed to broadcast alert.created for alert %s", alert.id)
 
@@ -395,6 +408,7 @@ def _alert_to_dict(alert: Alert, session: Session) -> dict:
         "id": alert.id,
         "job_id": alert.job_id,
         "camera_id": alert.camera_id,
+        "org_id": alert.org_id,  # internal only — not part of AlertResponse, used for org-scope checks
         "camera_name": camera.name if camera else None,
         "kpi_name": alert.kpi_name,
         "alert_type": alert.alert_type,
@@ -435,12 +449,19 @@ def query_alerts(
     limit: int = 200,
     offset: int = 0,
     allowed_camera_ids: Optional[set[str]] = None,
+    org_id: Optional[int] = None,
 ) -> tuple[list[dict], int]:
     """allowed_camera_ids: None = unrestricted (default, preserves existing
     behavior for every caller that doesn't pass it — e.g. videos.py). A
     non-None set restricts results to alerts whose camera_id is in it —
     Phase 4's zone-scoping (see app.services.alert_service), which also means
-    camera-less alerts are excluded whenever a restriction is active."""
+    camera-less alerts are excluded whenever a restriction is active.
+
+    org_id: None = unrestricted (default, preserves videos.py's existing
+    job_id-scoped behavior — it has no caller org to filter by). Every
+    org-aware caller (app.services.alert_service) always passes its caller's
+    org_id — this is the actual tenant-isolation filter; allowed_camera_ids
+    on top of it is zone-scoping *within* that org, not a substitute for it."""
     with get_session_ctx() as session:
         stmt = select(Alert)
         count_stmt = select(_func.count()).select_from(Alert)
@@ -448,6 +469,9 @@ def query_alerts(
         if camera_id:
             stmt = stmt.where(Alert.camera_id == camera_id)
             count_stmt = count_stmt.where(Alert.camera_id == camera_id)
+        if org_id is not None:
+            stmt = stmt.where(Alert.org_id == org_id)
+            count_stmt = count_stmt.where(Alert.org_id == org_id)
         if allowed_camera_ids is not None:
             stmt = stmt.where(Alert.camera_id.in_(allowed_camera_ids))
             count_stmt = count_stmt.where(Alert.camera_id.in_(allowed_camera_ids))

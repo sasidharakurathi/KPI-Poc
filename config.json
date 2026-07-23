@@ -562,7 +562,7 @@
         "min_smoke_motion": 2.5,
         "min_fire_motion": 2.5,
         "infer_imgsz": 512,
-        "confidence": 0.5
+        "confidence": 0.42
     },
     "MobileUsageKPI": {
         "enabled": true,

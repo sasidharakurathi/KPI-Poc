@@ -34,6 +34,13 @@ class Alert(SQLModel, table=True):
     # app.db.create_alert and app.services.camera_heartbeat.
     job_id: Optional[str] = Field(default=None, foreign_key="jobs.job_id", index=True)
     camera_id: Optional[str] = Field(default=None, foreign_key="cameras.camera_id", index=True)
+    # Resolved and stored at creation time from camera_id -> Camera.org_id
+    # (see app.db.create_alert) so every alert query can filter by org
+    # directly, without joining Camera — this is what actually enforces
+    # "an org only ever sees its own alerts" (previously there was no
+    # org-level filter at all for unrestricted/Owner-role callers, only
+    # zone-scoping, which is a no-op when unrestricted).
+    org_id: Optional[int] = Field(default=None, foreign_key="organizations.id", index=True)
     kpi_name: str
     alert_type: str
     frame_idx: Optional[int] = None  # no frame for a connectivity alert

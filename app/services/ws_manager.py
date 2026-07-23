@@ -1,8 +1,10 @@
 """In-process real-time pub-sub for the alerts WebSocket — Phase 4.
 
 No new infrastructure (no Redis/broker) — a single-process asyncio connection
-registry is sufficient for this deployment shape (one backend process per
-site, matching the rest of this platform's single-org-per-deployment design).
+registry is sufficient for this deployment shape (one backend process serving
+every organization on the deployment; every connection/broadcast is tagged
+with an org_id so events never cross tenant boundaries — see _Connection
+.can_see below).
 
 Two call surfaces:
   - `broadcast()` (async) — call from code already running on the main event
@@ -21,22 +23,31 @@ logger = logging.getLogger(__name__)
 
 
 class _Connection:
-    """One live WebSocket connection plus the zone restriction it was
-    authenticated with at connect time (None = unrestricted, sees everything)."""
+    """One live WebSocket connection plus the org it authenticated as and
+    the zone restriction it was authenticated with at connect time
+    (allowed_camera_ids=None = unrestricted *within that org*, not
+    unrestricted across every org — see can_see)."""
 
-    __slots__ = ("websocket", "allowed_camera_ids")
+    __slots__ = ("websocket", "org_id", "allowed_camera_ids")
 
-    def __init__(self, websocket, allowed_camera_ids: Optional[set[str]]) -> None:
+    def __init__(self, websocket, org_id: Optional[int], allowed_camera_ids: Optional[set[str]]) -> None:
         self.websocket = websocket
+        self.org_id = org_id
         self.allowed_camera_ids = allowed_camera_ids
 
-    def can_see(self, camera_id: Optional[str]) -> bool:
-        """None (unrestricted) sees every event, including camera-less ones.
-        A zone-restricted connection only sees events tied to a camera in its
-        allowed set — a camera-less event (e.g. an alert from an ad-hoc video
-        upload with no registered camera) is invisible to it, matching the
-        same "hide camera-less alerts from zone-restricted roles" rule
-        applied to the REST endpoints."""
+    def can_see(self, camera_id: Optional[str], org_id: Optional[int]) -> bool:
+        """org_id must match first — this is the real tenant boundary. A
+        connection with no resolvable org (shouldn't normally happen; every
+        authenticated user belongs to one) never sees anything rather than
+        failing open. Within the same org: an unrestricted (zone-wise)
+        connection sees every event, including camera-less ones; a
+        zone-restricted one only sees events tied to a camera in its allowed
+        set — a camera-less event (e.g. an alert from an ad-hoc video upload
+        with no registered camera) is invisible to it, matching the same
+        "hide camera-less alerts from zone-restricted roles" rule applied to
+        the REST endpoints."""
+        if self.org_id is None or org_id is None or self.org_id != org_id:
+            return False
         if self.allowed_camera_ids is None:
             return True
         return camera_id is not None and camera_id in self.allowed_camera_ids
@@ -54,8 +65,8 @@ class AlertsWebSocketManager:
         thread."""
         self._loop = loop
 
-    async def connect(self, websocket, allowed_camera_ids: Optional[set[str]]) -> _Connection:
-        conn = _Connection(websocket, allowed_camera_ids)
+    async def connect(self, websocket, org_id: Optional[int], allowed_camera_ids: Optional[set[str]]) -> _Connection:
+        conn = _Connection(websocket, org_id, allowed_camera_ids)
         async with self._lock:
             self._connections.append(conn)
         return conn
@@ -65,12 +76,17 @@ class AlertsWebSocketManager:
             if conn in self._connections:
                 self._connections.remove(conn)
 
-    async def broadcast(self, event_type: str, payload: dict, camera_id: Optional[str] = None) -> None:
+    async def broadcast(
+        self, event_type: str, payload: dict, camera_id: Optional[str] = None, org_id: Optional[int] = None,
+    ) -> None:
         """Sends {"event": event_type, "data": payload} to every connection
-        whose zone restriction allows it to see this camera_id."""
+        in the same org whose zone restriction allows it to see this
+        camera_id. org_id identifies which org this event belongs to — a
+        camera-less event with no resolvable org (shouldn't normally happen)
+        reaches no one rather than broadcasting to every org."""
         message = {"event": event_type, "data": payload}
         async with self._lock:
-            targets = [c for c in self._connections if c.can_see(camera_id)]
+            targets = [c for c in self._connections if c.can_see(camera_id, org_id)]
 
         stale: list[_Connection] = []
         for conn in targets:
@@ -81,7 +97,9 @@ class AlertsWebSocketManager:
         for conn in stale:
             await self.disconnect(conn)
 
-    def broadcast_threadsafe(self, event_type: str, payload: dict, camera_id: Optional[str] = None) -> None:
+    def broadcast_threadsafe(
+        self, event_type: str, payload: dict, camera_id: Optional[str] = None, org_id: Optional[int] = None,
+    ) -> None:
         """Safe to call from any thread, including the synchronous video
         pipeline's worker thread. Best-effort: if the websocket layer hasn't
         started (e.g. a script importing app.db outside the running FastAPI
@@ -91,7 +109,7 @@ class AlertsWebSocketManager:
             return
         try:
             asyncio.run_coroutine_threadsafe(
-                self.broadcast(event_type, payload, camera_id), self._loop
+                self.broadcast(event_type, payload, camera_id, org_id), self._loop
             )
         except Exception:
             logger.exception("[ws_manager] failed to schedule broadcast of '%s'", event_type)

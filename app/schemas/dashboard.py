@@ -44,6 +44,7 @@ class DashboardCameraItem(BaseModel):
     status: str                 # "active" | "inactive" — admin enabled toggle
     connectivity_status: str    # "active" | "inactive" | "pending" — live heartbeat-tracked
     stream_status: str          # "disabled" | "starting" | "connected" | "reconnecting" | "stopped"
+    alerts_by_year: dict[str, int] = {}  # {"2025": 12, "2026": 45, ...} — this camera's own alert counts
 
 
 class DashboardCamerasResponse(BaseModel):

@@ -110,20 +110,34 @@ def test_toggle_unknown_entry_404s(client, owner):
     assert resp.status_code == 404
 
 
-def test_catalog_is_org_scoped(client, owner, db_session):
-    from app.db.models.kpi_configuration import KPIConfiguration
+def test_catalog_is_global_not_org_scoped(client, owner, db_session):
+    """KPIConfiguration is shared across every organization (see the model's
+    docstring) — a second org must see the exact same row a first org wrote,
+    not a 404 and not a separate copy of its own."""
+    from .conftest import VALID_REGISTER_PAYLOAD, register_activate_login
 
     name = _a_real_kpi_name()
-    other_org_row = KPIConfiguration(kpi_name=name, org_id=999999, parameters={"foreign": True})
-    db_session.add(other_org_row)
-    db_session.commit()
-
-    resp = client.get("/api/kpis/catalog", headers=owner["headers"])
+    resp = client.put(
+        f"/api/kpis/catalog/{name}", headers=owner["headers"],
+        json={"config": {"confidence": 0.42}, "description": "Shared across orgs", "category": "safety"},
+    )
     assert resp.status_code == 200, resp.text
-    assert all(row["key"] != name for row in resp.json())  # the other org's row must not leak in
 
-    detail = client.get(f"/api/kpis/catalog/{name}", headers=owner["headers"])
-    assert detail.status_code == 404  # exists, but belongs to a different org
+    other_org_payload = {
+        **VALID_REGISTER_PAYLOAD,
+        "company_name": "Globex Shipping", "site_name": "Globex Yard",
+        "owner_full_name": "Bea Owner", "owner_email": "bea.owner@example.com", "username": "bea.owner",
+    }
+    other_login = register_activate_login(client, other_org_payload)
+    other_headers = {"Authorization": f"Bearer {other_login['access_token']}"}
+
+    detail = client.get(f"/api/kpis/catalog/{name}", headers=other_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["config"] == {"confidence": 0.42}
+    assert detail.json()["description"] == "Shared across orgs"
+
+    list_resp = client.get("/api/kpis/catalog", headers=other_headers)
+    assert any(row["key"] == name for row in list_resp.json())
 
 
 # ── Pipeline write-through ───────────────────────────────────────────────────

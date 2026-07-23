@@ -7,9 +7,12 @@ Browsers can't set an Authorization header on a WebSocket handshake, so the
 access token travels as a query parameter instead — validated the same way
 require_auth validates it for REST (decode + DB status/token_version check),
 plus the equivalent of require_permission("alerts", "view") against the
-caller's role. Zone-scoping matches the REST endpoints exactly: a role with
-a non-empty zone_ids restriction only receives events for cameras in those
-zones (see app.services.zone_scope, shared with the REST Alerts/Dashboard
+caller's role. A connection only ever receives its own organization's
+events (see app.services.ws_manager._Connection.can_see) — matching the org
+filter every REST Alerts/Dashboard endpoint applies. Zone-scoping on top of
+that matches the REST endpoints exactly: a role with a non-empty zone_ids
+restriction only receives events for cameras in those zones within its own
+org (see app.services.zone_scope, shared with the REST Alerts/Dashboard
 endpoints).
 
 Event contract (for the frontend team):
@@ -74,7 +77,7 @@ async def alerts_websocket(websocket: WebSocket, token: str):
         allowed_camera_ids = allowed_camera_ids_for_role(role, db)
 
     await websocket.accept()
-    conn = await ws_manager.connect(websocket, allowed_camera_ids)
+    conn = await ws_manager.connect(websocket, user.org_id, allowed_camera_ids)
     try:
         while True:
             # Push-only — nothing meaningful is expected from the client.

@@ -43,7 +43,7 @@ def list_alerts(
     rows, total = db_query_alerts(
         job_id=job_id, kpi_name=kpi_name, camera_id=camera_id, alert_type=alert_type,
         date_from=date_from, date_to=date_to, sort_by=sort_by, sort_dir=sort_dir,
-        limit=limit, offset=offset, allowed_camera_ids=allowed,
+        limit=limit, offset=offset, allowed_camera_ids=allowed, org_id=user.get("org_id"),
     )
     return AlertsResponse(count=len(rows), total=total, alerts=rows)
 
@@ -51,6 +51,11 @@ def list_alerts(
 def _get_visible_alert_or_404(db: Session, user: dict, alert_id: int) -> dict:
     alert = db_get_alert(alert_id)
     if alert is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Alert '{alert_id}' not found.")
+
+    # org check first — this is the real tenant boundary; an unrestricted
+    # (zone-wise) caller from a different org must still never see this.
+    if alert.get("org_id") != user.get("org_id"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Alert '{alert_id}' not found.")
 
     allowed = _allowed_camera_ids(user, db)

@@ -118,11 +118,13 @@ class KpiModelCreate(BaseModel):
     enabled: bool = True
 
 class KpiModelResponse(BaseModel):
+    """Shared across every organization — no org_id field, unlike the other
+    Phase 1 config responses above (see app.db.models.domain_config
+    .KpiModelCatalog's docstring)."""
     model_config = {"from_attributes": True}
     id: int
     name: str
     model_path: str
     confidence_threshold: float
-    org_id: Optional[int] = None
     enabled: bool
     created_at: datetime

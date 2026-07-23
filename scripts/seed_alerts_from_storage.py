@@ -27,9 +27,17 @@ alerts/alert_frames row tied to the target org's cameras is deleted first
 history on the same deployment is untouched. Camera/Zone/Priority/User/etc.
 tables are untouched everywhere.
 
+Timestamps span multiple calendar years, not just the recent past: the full
+211-alert dataset is replicated once per target year (this year, and
+years_back-1 years before it — see --years), each replica getting its own
+job_id (suffixed with the year) and a timestamp randomized within that one
+year. This is what gives dashboard.get_cameras' alerts_by_year (grouped by
+year, summed across every KPI for that camera) something real to show.
+
 Usage:
-    python scripts/seed_alerts_from_storage.py                # first org, real run
+    python scripts/seed_alerts_from_storage.py                # first org, real run, 3 years back
     python scripts/seed_alerts_from_storage.py --org-id 2
+    python scripts/seed_alerts_from_storage.py --years 5       # spread across 5 calendar years instead
     python scripts/seed_alerts_from_storage.py --dry-run       # preview only, no DB writes
 """
 import argparse
@@ -142,7 +150,25 @@ def clear_existing(session: Session, org: Organization) -> tuple[int, int, int]:
     return len(frames), len(alerts), len(jobs)
 
 
-def seed(session: Session, org: Organization, events: list[_ParsedEvent], *, dry_run: bool) -> tuple[int, int, int]:
+def _random_timestamp_in_year(year: int, now: datetime) -> datetime:
+    """A random moment within `year` — capped at `now` when year is the
+    current year, so we never generate a future timestamp."""
+    start = datetime(year, 1, 1)
+    end = min(datetime(year, 12, 31, 23, 59, 59), now) if year == now.year else datetime(year, 12, 31, 23, 59, 59)
+    span_seconds = max((end - start).total_seconds(), 1)
+    return start + timedelta(seconds=random.uniform(0, span_seconds))
+
+
+def seed(
+    session: Session, org: Organization, events: list[_ParsedEvent], *, years_back: int, dry_run: bool,
+) -> tuple[int, int, int]:
+    """Replicates the full real-file-backed dataset once per target year
+    (this year, and years_back-1 years before it) — same real frame images
+    every time (paths are just references, not consumed per-alert), but each
+    replica gets its own job_id (suffixed with the year) and a timestamp
+    randomized within that specific calendar year. This is what actually
+    produces multi-year data for dashboard.get_cameras' alerts_by_year,
+    rather than one random timestamp per job spread thin across years."""
     cameras = list(session.exec(select(Camera).where(Camera.org_id == org.id).order_by(Camera.camera_id)).all())
     if not cameras:
         print(f"Organization {org.id} ({org.org_id}) has no cameras — nothing to assign alerts to.")
@@ -153,51 +179,55 @@ def seed(session: Session, org: Organization, events: list[_ParsedEvent], *, dry
         by_job.setdefault(event.job_id, []).append(event)
 
     now = datetime.utcnow()
+    target_years = [now.year - offset for offset in range(years_back)]
     jobs_written = alerts_written = frames_written = 0
 
-    for i, (job_id, job_events) in enumerate(sorted(by_job.items())):
-        camera = cameras[i % len(cameras)]
-        job_created_at = now - timedelta(days=random.uniform(0, 30), hours=random.uniform(0, 23))
-        kpi_names = sorted({e.kpi_name for e in job_events})
+    for year in target_years:
+        print(f"  -- year {year} --")
+        for i, (job_id, job_events) in enumerate(sorted(by_job.items())):
+            camera = cameras[i % len(cameras)]
+            year_job_id = f"{job_id}-y{year}"
+            job_created_at = _random_timestamp_in_year(year, now)
+            kpi_names = sorted({e.kpi_name for e in job_events})
 
-        print(f"  job {job_id[:8]}... -> {camera.camera_id} ({len(job_events)} alert(s): {', '.join(kpi_names)})")
-        jobs_written += 1
-        if not dry_run:
-            session.add(Job(
-                job_id=job_id, filename=f"{job_id}.mp4", video_path=f"storage/uploads/{job_id}.mp4",
-                camera_id=camera.camera_id, camera_name=camera.name, status="completed",
-                kpis_running=kpi_names, created_at=job_created_at,
-                completed_at=job_created_at + timedelta(minutes=random.uniform(1, 5)),
-            ))
-
-        for j, event in enumerate(sorted(job_events, key=lambda e: (e.kpi_name, e.seq_dir.name))):
-            frame_idx = event.anchor_frame_idx()
-            if frame_idx is None:
-                continue
-            alert_created_at = job_created_at + timedelta(seconds=j * random.uniform(5, 20))
-            confidence = round(random.uniform(0.55, 0.98), 3)
-            alert_type = _ALERT_TYPE_BY_KPI.get(event.kpi_name, f"{event.kpi_name}_detected")
-
-            alerts_written += 1
-            if dry_run:
-                frames_written += len(event.frames)
-                continue
-
-            alert = Alert(
-                job_id=job_id, camera_id=camera.camera_id, kpi_name=event.kpi_name,
-                alert_type=alert_type, frame_idx=frame_idx, confidence=confidence,
-                created_at=alert_created_at,
-            )
-            session.add(alert)
-            session.flush()  # need alert.id for the frame rows below
-
-            for position, frame_number, path in sorted(event.frames):
-                labeled = event.labeled.get(frame_number)
-                session.add(AlertFrame(
-                    alert_id=alert.id, position=position, frame_idx=frame_number,
-                    path=_rel(path), labeled_path=_rel(labeled) if labeled else None,
+            print(f"  job {job_id[:8]}...-y{year} -> {camera.camera_id} ({len(job_events)} alert(s): {', '.join(kpi_names)})")
+            jobs_written += 1
+            if not dry_run:
+                session.add(Job(
+                    job_id=year_job_id, filename=f"{job_id}.mp4", video_path=f"storage/uploads/{job_id}.mp4",
+                    camera_id=camera.camera_id, camera_name=camera.name, status="completed",
+                    kpis_running=kpi_names, created_at=job_created_at,
+                    completed_at=job_created_at + timedelta(minutes=random.uniform(1, 5)),
                 ))
-                frames_written += 1
+
+            for j, event in enumerate(sorted(job_events, key=lambda e: (e.kpi_name, e.seq_dir.name))):
+                frame_idx = event.anchor_frame_idx()
+                if frame_idx is None:
+                    continue
+                alert_created_at = job_created_at + timedelta(seconds=j * random.uniform(5, 20))
+                confidence = round(random.uniform(0.55, 0.98), 3)
+                alert_type = _ALERT_TYPE_BY_KPI.get(event.kpi_name, f"{event.kpi_name}_detected")
+
+                alerts_written += 1
+                if dry_run:
+                    frames_written += len(event.frames)
+                    continue
+
+                alert = Alert(
+                    job_id=year_job_id, camera_id=camera.camera_id, org_id=camera.org_id, kpi_name=event.kpi_name,
+                    alert_type=alert_type, frame_idx=frame_idx, confidence=confidence,
+                    created_at=alert_created_at,
+                )
+                session.add(alert)
+                session.flush()  # need alert.id for the frame rows below
+
+                for position, frame_number, path in sorted(event.frames):
+                    labeled = event.labeled.get(frame_number)
+                    session.add(AlertFrame(
+                        alert_id=alert.id, position=position, frame_idx=frame_number,
+                        path=_rel(path), labeled_path=_rel(labeled) if labeled else None,
+                    ))
+                    frames_written += 1
 
     if not dry_run:
         session.commit()
@@ -208,9 +238,14 @@ def seed(session: Session, org: Organization, events: list[_ParsedEvent], *, dry
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--org-id", type=int, default=None, help="Assign alerts to this org's cameras (default: first org).")
+    parser.add_argument("--years", type=int, default=3, help="Replicate the dataset across this many calendar years, ending this year (default: 3).")
     parser.add_argument("--dry-run", action="store_true", help="Print what would happen without touching the database.")
     parser.add_argument("--seed", type=int, default=None, help="Random seed, for reproducible dummy timestamps/confidences.")
     args = parser.parse_args()
+
+    if args.years < 1:
+        print("--years must be at least 1.")
+        return
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -248,8 +283,10 @@ def main() -> None:
             cleared_frames, cleared_alerts, cleared_jobs = clear_existing(session, org)
             print(f"Cleared {cleared_jobs} jobs, {cleared_alerts} alerts, {cleared_frames} alert_frames.")
 
-        print(f"Seeding into organization {org.id} ({org.org_id}):")
-        jobs_written, alerts_written, frames_written = seed(session, org, events, dry_run=args.dry_run)
+        print(f"Seeding into organization {org.id} ({org.org_id}), across {args.years} year(s):")
+        jobs_written, alerts_written, frames_written = seed(
+            session, org, events, years_back=args.years, dry_run=args.dry_run,
+        )
 
         mode = "DRY RUN — would write" if args.dry_run else "Wrote"
         print(f"\n{mode} {jobs_written} jobs, {alerts_written} alerts, {frames_written} alert_frames.")

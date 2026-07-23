@@ -5,21 +5,28 @@ cover. Run after both of those (kpi_configuration and alerts/jobs should
 already exist) so this script can link against them.
 
 Tables touched, and why:
-  priorities          new rows (Critical/High/Medium/Low) — 0 existed before
+  priorities          new rows (Critical/High/Medium/Low) — org-scoped
   zones               new rows, grouped from real camera names (rig/vessel
-                       areas: Wheel House, Engine Room, Crane Area, ...)
+                       areas: Wheel House, Engine Room, Crane Area, ...) —
+                       org-scoped
   cameras             UPDATED in place: zone_id/priority_id/kpi_model_ids —
-                       every existing camera had all three NULL/empty
+                       every existing camera had all three NULL/empty —
+                       org-scoped
   kpi_model_catalog   new rows, one per registered KPI, using each
                        detector's REAL model_path/confidence from config.json
-                       (app.config_loader) — not made up
+                       (app.config_loader) — not made up. GLOBAL, not
+                       org-scoped (see app.db.models.domain_config
+                       .KpiModelCatalog's docstring) — seeded once regardless
+                       of which --org-id you pass.
   kpi_configuration   UPDATED in place: assigned_models now references the
-                       kpi_model_catalog rows above instead of staying empty
+                       kpi_model_catalog rows above instead of staying empty.
+                       Also GLOBAL, updated once regardless of --org-id.
   roles               2 new sample roles (Operator, Zone Guard) alongside
-                       the existing Owner/Viewer
-  users               new users for those roles
+                       the existing Owner/Viewer — org-scoped
+  users               new users for those roles — org-scoped
   email_logs          new rows referencing existing alerts (a plausible
-                       subset — not every alert necessarily emails)
+                       subset — not every alert necessarily emails) —
+                       scoped to the target org's own cameras/alerts
 
 Tables deliberately NOT touched, and why:
   audit_logs          a factual record of real actions taken through the API
@@ -213,10 +220,11 @@ def assign_camera_references(
     return updated
 
 
-def seed_kpi_model_catalog(session: Session, org: Organization, *, dry_run: bool) -> dict[str, KpiModelCatalog]:
+def seed_kpi_model_catalog(session: Session, *, dry_run: bool) -> dict[str, KpiModelCatalog]:
     """One catalog entry per registered KPI, using that detector's real
-    model_path + confidence straight from config.json — not invented."""
-    existing = {m.name: m for m in session.exec(select(KpiModelCatalog).where(KpiModelCatalog.org_id == org.id)).all()}
+    model_path + confidence straight from config.json — not invented.
+    Global (not org-scoped) — seeded once regardless of --org-id."""
+    existing = {m.name: m for m in session.exec(select(KpiModelCatalog)).all()}
     by_kpi_name: dict[str, KpiModelCatalog] = {}
     registry = get_registry()
 
@@ -236,7 +244,7 @@ def seed_kpi_model_catalog(session: Session, org: Organization, *, dry_run: bool
             else:
                 entry = KpiModelCatalog(
                     name=catalog_name, model_path=model_path, confidence_threshold=confidence,
-                    org_id=org.id, created_by="seed_reference_data.py",
+                    created_by="seed_reference_data.py",
                 )
                 session.add(entry)
                 session.flush()
@@ -247,9 +255,10 @@ def seed_kpi_model_catalog(session: Session, org: Organization, *, dry_run: bool
 
 
 def link_kpi_configuration_models(
-    session: Session, org: Organization, model_by_kpi: dict[str, KpiModelCatalog], *, force: bool, dry_run: bool,
+    session: Session, model_by_kpi: dict[str, KpiModelCatalog], *, force: bool, dry_run: bool,
 ) -> int:
-    configs = session.exec(select(KPIConfiguration).where(KPIConfiguration.org_id == org.id)).all()
+    """Global (not org-scoped) — updated once regardless of --org-id."""
+    configs = session.exec(select(KPIConfiguration)).all()
     updated = 0
     for config in configs:
         if config.assigned_models and not force:
@@ -384,11 +393,11 @@ def main() -> None:
         print("\nCamera zone_id/priority_id/kpi_model_ids:")
         cameras_updated = assign_camera_references(session, org, zones, priorities, force=args.force, dry_run=args.dry_run)
 
-        print("\nKPI Model Catalog (detection models):")
-        model_by_kpi = seed_kpi_model_catalog(session, org, dry_run=args.dry_run)
+        print("\nKPI Model Catalog (detection models, global — shared across every org):")
+        model_by_kpi = seed_kpi_model_catalog(session, dry_run=args.dry_run)
 
-        print("\nKPI Management catalog -> assigned_models links:")
-        kpi_config_updated = link_kpi_configuration_models(session, org, model_by_kpi, force=args.force, dry_run=args.dry_run)
+        print("\nKPI Management catalog -> assigned_models links (global):")
+        kpi_config_updated = link_kpi_configuration_models(session, model_by_kpi, force=args.force, dry_run=args.dry_run)
 
         print("\nRoles:")
         roles = seed_roles(session, org, zones, dry_run=args.dry_run)

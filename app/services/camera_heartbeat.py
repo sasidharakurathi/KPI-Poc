@@ -77,7 +77,7 @@ def _check_once() -> None:
                 ws_manager.broadcast_threadsafe(
                     "camera.offline",
                     {"camera_id": cam.camera_id, "camera_name": cam.name, "connectivity_status": new_status},
-                    camera_id=cam.camera_id,
+                    camera_id=cam.camera_id, org_id=cam.org_id,
                 )
                 logger.warning("[camera_heartbeat] %s", message)
 
@@ -89,7 +89,7 @@ def _check_once() -> None:
                 ws_manager.broadcast_threadsafe(
                     "camera.online",
                     {"camera_id": cam.camera_id, "camera_name": cam.name, "connectivity_status": new_status},
-                    camera_id=cam.camera_id,
+                    camera_id=cam.camera_id, org_id=cam.org_id,
                 )
 
 

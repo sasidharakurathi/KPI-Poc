@@ -30,14 +30,29 @@ class _FakeWebSocket:
 
 # ── ws_manager core ──────────────────────────────────────────────────────────
 
-def test_connection_can_see_unrestricted():
+def test_connection_can_see_unrestricted_within_same_org():
     manager = AlertsWebSocketManager()
 
     async def _run():
         ws = _FakeWebSocket()
-        conn = await manager.connect(ws, allowed_camera_ids=None)
-        assert conn.can_see("CAM-1")
-        assert conn.can_see(None)  # camera-less events are visible to unrestricted connections too
+        conn = await manager.connect(ws, org_id=1, allowed_camera_ids=None)
+        assert conn.can_see("CAM-1", org_id=1)
+        assert conn.can_see(None, org_id=1)  # camera-less events are visible to unrestricted connections too
+
+    asyncio.run(_run())
+
+
+def test_connection_never_sees_a_different_org_even_if_unrestricted():
+    """The actual security fix: allowed_camera_ids=None means unrestricted
+    *within this connection's own org*, never across every org."""
+    manager = AlertsWebSocketManager()
+
+    async def _run():
+        ws = _FakeWebSocket()
+        conn = await manager.connect(ws, org_id=1, allowed_camera_ids=None)
+        assert not conn.can_see("CAM-1", org_id=2)
+        assert not conn.can_see(None, org_id=2)
+        assert not conn.can_see("CAM-1", org_id=None)  # unresolvable org never matches either
 
     asyncio.run(_run())
 
@@ -47,10 +62,11 @@ def test_connection_can_see_restricted():
 
     async def _run():
         ws = _FakeWebSocket()
-        conn = await manager.connect(ws, allowed_camera_ids={"CAM-1"})
-        assert conn.can_see("CAM-1")
-        assert not conn.can_see("CAM-2")
-        assert not conn.can_see(None)
+        conn = await manager.connect(ws, org_id=1, allowed_camera_ids={"CAM-1"})
+        assert conn.can_see("CAM-1", org_id=1)
+        assert not conn.can_see("CAM-2", org_id=1)
+        assert not conn.can_see(None, org_id=1)
+        assert not conn.can_see("CAM-1", org_id=2)  # zone-unrestricted-within-org still isn't cross-org
 
     asyncio.run(_run())
 
@@ -61,14 +77,31 @@ def test_broadcast_delivers_only_to_matching_connections():
     async def _run():
         ws_all = _FakeWebSocket()
         ws_zone1 = _FakeWebSocket()
-        await manager.connect(ws_all, allowed_camera_ids=None)
-        await manager.connect(ws_zone1, allowed_camera_ids={"CAM-1"})
+        await manager.connect(ws_all, org_id=1, allowed_camera_ids=None)
+        await manager.connect(ws_zone1, org_id=1, allowed_camera_ids={"CAM-1"})
 
-        await manager.broadcast("alert.created", {"id": 1}, camera_id="CAM-1")
-        await manager.broadcast("alert.created", {"id": 2}, camera_id="CAM-2")
+        await manager.broadcast("alert.created", {"id": 1}, camera_id="CAM-1", org_id=1)
+        await manager.broadcast("alert.created", {"id": 2}, camera_id="CAM-2", org_id=1)
 
         assert [m["data"]["id"] for m in ws_all.sent] == [1, 2]
         assert [m["data"]["id"] for m in ws_zone1.sent] == [1]
+
+    asyncio.run(_run())
+
+
+def test_broadcast_never_reaches_a_different_orgs_connection():
+    manager = AlertsWebSocketManager()
+
+    async def _run():
+        ws_org1 = _FakeWebSocket()
+        ws_org2 = _FakeWebSocket()
+        await manager.connect(ws_org1, org_id=1, allowed_camera_ids=None)
+        await manager.connect(ws_org2, org_id=2, allowed_camera_ids=None)
+
+        await manager.broadcast("alert.created", {"id": 1}, camera_id="CAM-1", org_id=1)
+
+        assert [m["data"]["id"] for m in ws_org1.sent] == [1]
+        assert ws_org2.sent == []
 
     asyncio.run(_run())
 
@@ -79,11 +112,11 @@ def test_broadcast_removes_stale_connection_on_send_failure():
     async def _run():
         broken = _FakeWebSocket(fail=True)
         healthy = _FakeWebSocket()
-        await manager.connect(broken, allowed_camera_ids=None)
-        await manager.connect(healthy, allowed_camera_ids=None)
+        await manager.connect(broken, org_id=1, allowed_camera_ids=None)
+        await manager.connect(healthy, org_id=1, allowed_camera_ids=None)
 
         assert manager.connection_count == 2
-        await manager.broadcast("alert.created", {"id": 1}, camera_id=None)
+        await manager.broadcast("alert.created", {"id": 1}, camera_id=None, org_id=1)
         assert manager.connection_count == 1
         assert healthy.sent
 
@@ -93,7 +126,7 @@ def test_broadcast_removes_stale_connection_on_send_failure():
 def test_broadcast_threadsafe_is_a_noop_without_a_bound_loop():
     manager = AlertsWebSocketManager()
     # Should not raise even though nothing is listening / no loop is bound.
-    manager.broadcast_threadsafe("alert.created", {"id": 1}, camera_id=None)
+    manager.broadcast_threadsafe("alert.created", {"id": 1}, camera_id=None, org_id=1)
 
 
 # ── WebSocket endpoint auth ──────────────────────────────────────────────────

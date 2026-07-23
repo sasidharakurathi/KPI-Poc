@@ -57,6 +57,19 @@ def _login_as(client, db_session, org_id, role_id, username):
     return login.json()["access_token"]
 
 
+def _second_org_owner(client) -> dict:
+    from .conftest import VALID_REGISTER_PAYLOAD, register_activate_login
+
+    payload = {
+        **VALID_REGISTER_PAYLOAD,
+        "company_name": "Globex Shipping", "site_name": "Globex Yard",
+        "owner_full_name": "Bea Owner", "owner_email": "bea.owner@example.com", "username": "bea.owner",
+    }
+    body = register_activate_login(client, payload)
+    body["headers"] = {"Authorization": f"Bearer {body['access_token']}"}
+    return body
+
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 def test_dashboard_requires_auth(client):
@@ -190,6 +203,46 @@ def test_dashboard_summary_zone_scoped(client, owner, db_session):
     assert body["total_alerts"] == 1
 
 
+def test_dashboard_summary_alerts_are_org_scoped_even_for_unrestricted_owner(client, owner):
+    """Regression test: total_alerts/alerts_last_24h/alerts_by_priority used
+    to have zero org filter at all — only zone-scoping, which is a no-op for
+    an unrestricted (is_system Owner) caller — so a brand-new org's Owner
+    would see every other organization's alert counts on this deployment.
+    Alert.org_id (resolved from camera at creation time) now closes that."""
+    zone_id = _make_zone(client, owner["headers"], "Org1 Zone")
+    priority_id = _make_priority(client, owner["headers"], "Org1 Pri")
+    _make_camera(client, owner["headers"], "CAM-ORG1", zone_id, priority_id)
+    create_alert(camera_id="CAM-ORG1", kpi_name="fire_smoke", alert_type="fire", frame_idx=1, confidence=0.9)
+    create_alert(camera_id="CAM-ORG1", kpi_name="fire_smoke", alert_type="fire", frame_idx=2, confidence=0.9)
+
+    other = _second_org_owner(client)
+    resp = client.get("/api/dashboard/summary", headers=other["headers"])
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["total_alerts"] == 0
+    assert body["alerts_last_24h"] == 0
+    assert body["alerts_by_priority"] == {}
+
+    # sanity: the first org's Owner still sees its own two alerts
+    own_resp = client.get("/api/dashboard/summary", headers=owner["headers"])
+    assert own_resp.json()["total_alerts"] == 2
+
+
+def test_dashboard_summary_active_kpi_models_is_global_across_orgs(client, owner):
+    """active_kpi_models/active_kpis are deployment-wide, not per-org — a
+    model created under one org must be counted in every other org's
+    summary too (see app.db.models.domain_config.KpiModelCatalog's
+    docstring: shared, not org-scoped)."""
+    client.post(
+        "/api/config/kpi-models", headers=owner["headers"],
+        json={"name": "Cross-Org Shared Model", "model_path": "/models/shared.pt"},
+    )
+    other = _second_org_owner(client)
+    resp = client.get("/api/dashboard/summary", headers=other["headers"])
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["active_kpi_models"] == 1
+
+
 # ── Alert chart ───────────────────────────────────────────────────────────────
 
 def test_alert_chart_groups_by_day_and_kpi(client, owner):
@@ -247,6 +300,37 @@ def test_dashboard_cameras_enriched(client, owner):
     assert row["status"] == "active"
     assert row["connectivity_status"] == "pending"
     assert row["stream_status"] == "disabled"
+    assert row["alerts_by_year"] == {}
+
+
+def test_dashboard_cameras_alerts_by_year(client, owner, db_session):
+    from datetime import datetime
+
+    from app.db.models import Alert
+
+    zone_id = _make_zone(client, owner["headers"], "Year Zone")
+    priority_id = _make_priority(client, owner["headers"], "Year Pri")
+    _make_camera(client, owner["headers"], "CAM-YEAR1", zone_id, priority_id)
+    _make_camera(client, owner["headers"], "CAM-YEAR2", zone_id, priority_id)
+
+    this_year_alert = create_alert(camera_id="CAM-YEAR1", kpi_name="fire_smoke", alert_type="fire", frame_idx=1, confidence=0.9)
+    old_alert_a = create_alert(camera_id="CAM-YEAR1", kpi_name="fire_smoke", alert_type="fire", frame_idx=2, confidence=0.9)
+    old_alert_b = create_alert(camera_id="CAM-YEAR1", kpi_name="ppe", alert_type="no_helmet", frame_idx=3, confidence=0.8)
+    create_alert(camera_id="CAM-YEAR2", kpi_name="fire_smoke", alert_type="fire", frame_idx=4, confidence=0.9)
+
+    for alert_id in (old_alert_a, old_alert_b):
+        row = db_session.get(Alert, alert_id)
+        row.created_at = datetime(2024, 6, 1)
+        db_session.add(row)
+    db_session.commit()
+
+    resp = client.get("/api/dashboard/cameras", headers=owner["headers"])
+    assert resp.status_code == 200, resp.text
+    cameras = {c["camera_id"]: c for c in resp.json()["cameras"]}
+
+    current_year = str(datetime.utcnow().year)
+    assert cameras["CAM-YEAR1"]["alerts_by_year"] == {current_year: 1, "2024": 2}
+    assert cameras["CAM-YEAR2"]["alerts_by_year"] == {current_year: 1}
 
 
 def test_dashboard_cameras_zone_scoped(client, owner, db_session):

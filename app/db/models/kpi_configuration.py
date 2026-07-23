@@ -11,7 +11,12 @@ class KPIConfiguration(SQLModel, table=True):
     enable_status/parameters now also writes through to config.json (see
     app.config_loader.update_kpi_config), which is what the real detection
     pipeline actually reads; assigned_models does not write through (no
-    sensible 1:1 mapping to config.json's single model_path per KPI)."""
+    sensible 1:1 mapping to config.json's single model_path per KPI).
+
+    One row per KPI, shared across every organization on this deployment —
+    not org-scoped. There's a single real detection pipeline behind each KPI
+    regardless of tenant count, so "is fire_smoke enabled" is a deployment-
+    wide fact, not a per-org one."""
     __tablename__ = "kpi_configuration"
 
     # BigInteger with an explicit variant for SQLite: SQLite only grants its
@@ -23,7 +28,9 @@ class KPIConfiguration(SQLModel, table=True):
         default=None,
         sa_column=Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True),
     )
-    kpi_name: str = Field(sa_column=Column(String(255), nullable=False))
+    kpi_name: str = Field(sa_column=Column(String(255), nullable=False, unique=True))
+    # Superseded — this table is shared across every org now. Left in place,
+    # unused, per this project's additive-only migration policy.
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     description: Optional[str] = Field(default=None, sa_column=Column(String(500)))
     category: Optional[str] = Field(default=None, sa_column=Column(String(50)))
