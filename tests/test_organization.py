@@ -141,31 +141,56 @@ def test_list_organizations_returns_every_org_for_owner(client, db_session):
     assert names == {VALID_REGISTER_PAYLOAD["company_name"], SECOND_ORG_PAYLOAD["company_name"]}
 
 
-# ── Logo upload ──────────────────────────────────────────────────────────────
+# ── Logo upload (base64 JSON) ────────────────────────────────────────────────
+
+import base64 as _b64
+
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_JPEG_MAGIC = b"\xff\xd8\xff"
+
+
+def _b64_of(data: bytes) -> str:
+    return _b64.b64encode(data).decode("ascii")
+
 
 def test_upload_logo_requires_permission(client):
-    resp = client.post(
-        "/api/organization/logo", files={"file": ("logo.png", b"\x89PNG\r\n\x1a\n", "image/png")},
-    )
+    resp = client.post("/api/organization/logo", json={"logo_base64": _b64_of(_PNG_MAGIC + b"fake")})
     assert resp.status_code == 401
 
 
-def test_upload_logo_succeeds_and_sets_logo_url(client, db_session):
+def test_upload_logo_succeeds_and_sets_logo_url_and_base64(client, db_session):
     token = _activated_owner_token(client, db_session)
     headers = {"Authorization": f"Bearer {token}"}
+    image_bytes = _PNG_MAGIC + b"fake-but-good-enough"
 
     resp = client.post(
         "/api/organization/logo", headers=headers,
-        files={"file": ("logo.png", b"\x89PNG\r\n\x1a\nfake-but-good-enough", "image/png")},
+        json={"logo_base64": _b64_of(image_bytes)},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["logo_url"] is not None
     assert body["logo_url"].endswith(".png")
+    # the upload response itself echoes the saved image back as base64 —
+    # decoding it must round-trip to exactly what was saved
+    assert _b64.b64decode(body["logo_base64"]) == image_bytes
 
-    # GET reflects the same logo_url afterwards.
+    # GET reflects the same logo_url AND logo_base64 afterwards — not just
+    # the upload response.
     get_resp = client.get("/api/organization", headers=headers)
     assert get_resp.json()["logo_url"] == body["logo_url"]
+    assert _b64.b64decode(get_resp.json()["logo_base64"]) == image_bytes
+
+
+def test_upload_logo_accepts_data_uri_prefix(client, db_session):
+    token = _activated_owner_token(client, db_session)
+    headers = {"Authorization": f"Bearer {token}"}
+    image_bytes = _JPEG_MAGIC + b"jpeg-ish-bytes"
+    data_uri = f"data:image/jpeg;base64,{_b64_of(image_bytes)}"
+
+    resp = client.post("/api/organization/logo", headers=headers, json={"logo_base64": data_uri})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["logo_url"].endswith(".jpg")
 
 
 def test_upload_logo_replaces_previous_file(client, db_session):
@@ -176,14 +201,14 @@ def test_upload_logo_replaces_previous_file(client, db_session):
 
     first = client.post(
         "/api/organization/logo", headers=headers,
-        files={"file": ("logo1.png", b"first-logo-bytes", "image/png")},
+        json={"logo_base64": _b64_of(_PNG_MAGIC + b"first-logo-bytes")},
     )
     first_filename = first.json()["logo_url"].rsplit("/", 1)[-1]
     assert (settings.LOGOS_DIR / first_filename).exists()
 
     second = client.post(
         "/api/organization/logo", headers=headers,
-        files={"file": ("logo2.png", b"second-logo-bytes", "image/png")},
+        json={"logo_base64": _b64_of(_PNG_MAGIC + b"second-logo-bytes")},
     )
     second_filename = second.json()["logo_url"].rsplit("/", 1)[-1]
     assert second_filename != first_filename
@@ -193,12 +218,20 @@ def test_upload_logo_replaces_previous_file(client, db_session):
     (settings.LOGOS_DIR / second_filename).unlink(missing_ok=True)  # test cleanup
 
 
-def test_upload_logo_rejects_unsupported_type(client, db_session):
+def test_upload_logo_rejects_unrecognized_image_data(client, db_session):
     token = _activated_owner_token(client, db_session)
     headers = {"Authorization": f"Bearer {token}"}
 
     resp = client.post(
         "/api/organization/logo", headers=headers,
-        files={"file": ("logo.gif", b"GIF89a", "image/gif")},
+        json={"logo_base64": _b64_of(b"GIF89a-not-a-supported-format")},
     )
+    assert resp.status_code == 422, resp.text
+
+
+def test_upload_logo_rejects_invalid_base64(client, db_session):
+    token = _activated_owner_token(client, db_session)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.post("/api/organization/logo", headers=headers, json={"logo_base64": "not-valid-base64!!!"})
     assert resp.status_code == 422, resp.text

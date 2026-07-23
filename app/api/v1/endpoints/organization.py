@@ -3,7 +3,7 @@
 Implements:
   GET  /api/organization         Get the caller's own organization
   PUT  /api/organization         Update name, tagline, timezone, site details (Owner/Admin only)
-  POST /api/organization/logo    Upload/replace the organization's logo (Owner/Admin only)
+  POST /api/organization/logo    Create/replace the organization's logo, via base64 JSON (Owner/Admin only)
   GET  /api/organizations        List every organization on this deployment (Owner-role only)
 
 This is a multi-tenant deployment: any number of organizations can exist.
@@ -19,20 +19,29 @@ Per the confirmed Phase 0 decision, there is no separate Site entity: the
 Organization row carries its site fields (site_name/site_address/latitude/
 longitude) directly.
 
+The logo endpoint takes base64 (JSON body), not a multipart file upload —
+simpler for the frontend (no separate FormData request), and it still saves
+the decoded image to disk under settings.LOGOS_DIR / served publicly at
+/media/logos/... (see logo_url below), the same as before. The image type is
+determined by sniffing the decoded bytes' own magic number rather than
+trusting a client-declared content type.
+
 Models used: Organization (app.db.models.organization)
-Schemas: OrganizationResponse, OrganizationUpdate (app.schemas.organization)
+Schemas: OrganizationResponse, OrganizationUpdate, OrganizationLogoUpload (app.schemas.organization)
 """
+import base64
+import binascii
 import logging
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select
 
 from app.config import settings
 from app.core.dependencies import DbSession, require_auth, require_permission
 from app.db.models import Organization
-from app.schemas.organization import OrganizationResponse, OrganizationUpdate
+from app.schemas.organization import OrganizationLogoUpload, OrganizationResponse, OrganizationUpdate
 from app.services.auth_service import get_timezone_or_422
 
 logger = logging.getLogger(__name__)
@@ -40,12 +49,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/organization", tags=["organization"])
 organizations_router = APIRouter(prefix="/api/organizations", tags=["organization"])
 
-_ALLOWED_LOGO_TYPES = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/webp": ".webp",
-    "image/svg+xml": ".svg",
-}
+# Signature-sniffing, not a client-declared content type — the first rule
+# whose bytes match wins. SVG is checked separately (it's text, not a fixed
+# binary magic number) after none of these match.
+_MAGIC_SIGNATURES: list[tuple[bytes, str]] = [
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+]
+
+
+def _sniff_image_extension(data: bytes) -> str | None:
+    for signature, ext in _MAGIC_SIGNATURES:
+        if data.startswith(signature):
+            return ext
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    head = data[:512].decode("utf-8", errors="ignore").lstrip().lower()
+    if head.startswith("<?xml") or head.startswith("<svg"):
+        if "<svg" in head:
+            return ".svg"
+    return None
+
+
+def _decode_base64_image(raw: str) -> bytes:
+    payload = raw.split(",", 1)[1] if raw.strip().startswith("data:") else raw
+    try:
+        return base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "logo_base64 is not valid base64.")
 
 
 def _get_own_org(db: DbSession, user: dict) -> Organization:
@@ -57,6 +88,12 @@ def _get_own_org(db: DbSession, user: dict) -> Organization:
 
 def _to_organization_response(org: Organization) -> OrganizationResponse:
     logo_url = f"{settings.PUBLIC_BASE_URL}/media/logos/{org.logo_path}" if org.logo_path else None
+    logo_base64 = None
+    if org.logo_path:
+        try:
+            logo_base64 = base64.b64encode((settings.LOGOS_DIR / org.logo_path).read_bytes()).decode("ascii")
+        except OSError:
+            logger.warning("[organization] could not read back logo file %s for base64 response", org.logo_path)
     return OrganizationResponse(
         id=org.id,
         org_id=org.org_id,
@@ -68,6 +105,7 @@ def _to_organization_response(org: Organization) -> OrganizationResponse:
         latitude=org.latitude,
         longitude=org.longitude,
         logo_url=logo_url,
+        logo_base64=logo_base64,
         created_at=org.created_at,
     )
 
@@ -101,26 +139,28 @@ def update_organization(
 
 
 @router.post("/logo", response_model=OrganizationResponse)
-async def upload_organization_logo(
+def upload_organization_logo(
+    payload: OrganizationLogoUpload,
     db: DbSession,
-    file: UploadFile,
     user: dict = Depends(require_permission("organization_settings", "edit")),
 ) -> OrganizationResponse:
+    """Creates the org's logo if it doesn't have one yet, or replaces the
+    existing one — same endpoint either way, matching how PUT /api/organization
+    handles create-vs-update for every other field. The old file (if any) is
+    deleted from disk after the new one is saved."""
     org = _get_own_org(db, user)
 
-    ext = _ALLOWED_LOGO_TYPES.get(file.content_type)
-    if ext is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            f"Unsupported logo type '{file.content_type}'. Allowed: "
-            f"{', '.join(sorted(_ALLOWED_LOGO_TYPES))}.",
-        )
-
-    content = await file.read()
+    content = _decode_base64_image(payload.logo_base64)
     if len(content) > settings.LOGO_MAX_SIZE_BYTES:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
-            f"Logo file too large — max {settings.LOGO_MAX_SIZE_BYTES // (1024 * 1024)} MB.",
+            f"Logo image too large — max {settings.LOGO_MAX_SIZE_BYTES // (1024 * 1024)} MB.",
+        )
+    ext = _sniff_image_extension(content)
+    if ext is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Unrecognized image data. Supported formats: PNG, JPEG, WEBP, SVG.",
         )
 
     old_filename = org.logo_path
