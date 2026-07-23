@@ -300,37 +300,6 @@ def test_dashboard_cameras_enriched(client, owner):
     assert row["status"] == "active"
     assert row["connectivity_status"] == "pending"
     assert row["stream_status"] == "disabled"
-    assert row["alerts_by_year"] == {}
-
-
-def test_dashboard_cameras_alerts_by_year(client, owner, db_session):
-    from datetime import datetime
-
-    from app.db.models import Alert
-
-    zone_id = _make_zone(client, owner["headers"], "Year Zone")
-    priority_id = _make_priority(client, owner["headers"], "Year Pri")
-    _make_camera(client, owner["headers"], "CAM-YEAR1", zone_id, priority_id)
-    _make_camera(client, owner["headers"], "CAM-YEAR2", zone_id, priority_id)
-
-    this_year_alert = create_alert(camera_id="CAM-YEAR1", kpi_name="fire_smoke", alert_type="fire", frame_idx=1, confidence=0.9)
-    old_alert_a = create_alert(camera_id="CAM-YEAR1", kpi_name="fire_smoke", alert_type="fire", frame_idx=2, confidence=0.9)
-    old_alert_b = create_alert(camera_id="CAM-YEAR1", kpi_name="ppe", alert_type="no_helmet", frame_idx=3, confidence=0.8)
-    create_alert(camera_id="CAM-YEAR2", kpi_name="fire_smoke", alert_type="fire", frame_idx=4, confidence=0.9)
-
-    for alert_id in (old_alert_a, old_alert_b):
-        row = db_session.get(Alert, alert_id)
-        row.created_at = datetime(2024, 6, 1)
-        db_session.add(row)
-    db_session.commit()
-
-    resp = client.get("/api/dashboard/cameras", headers=owner["headers"])
-    assert resp.status_code == 200, resp.text
-    cameras = {c["camera_id"]: c for c in resp.json()["cameras"]}
-
-    current_year = str(datetime.utcnow().year)
-    assert cameras["CAM-YEAR1"]["alerts_by_year"] == {current_year: 1, "2024": 2}
-    assert cameras["CAM-YEAR2"]["alerts_by_year"] == {current_year: 1}
 
 
 def test_dashboard_cameras_zone_scoped(client, owner, db_session):

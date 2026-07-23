@@ -106,6 +106,7 @@ class CameraResponse(BaseModel):
     stream_status: str = "disabled"
     stream_error: Optional[str] = None
     created_at: str
+    alerts_by_year: dict[str, int] = Field(default_factory=dict)  # {"2025": 12, "2026": 45, ...} — this camera's own alerts, every KPI combined
 
 
 class CameraListItem(BaseModel):

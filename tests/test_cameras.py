@@ -140,6 +140,45 @@ def test_get_camera_not_found(client, owner):
     assert resp.status_code == 404
 
 
+def test_get_camera_alerts_by_year(client, owner, db_session):
+    from datetime import datetime
+
+    from app.db import create_alert
+    from app.db.models import Alert
+
+    zone_id = _make_zone(client, owner["headers"], "Year Zone")
+    priority_id = _make_priority(client, owner["headers"], "Year Pri")
+    client.post(
+        "/api/cameras", headers=owner["headers"],
+        json={"camera_id": "CAM-YEAR1", "name": "Cam Year1", "zone_id": zone_id, "priority_id": priority_id},
+    )
+    client.post(
+        "/api/cameras", headers=owner["headers"],
+        json={"camera_id": "CAM-YEAR2", "name": "Cam Year2", "zone_id": zone_id, "priority_id": priority_id},
+    )
+
+    create_alert(camera_id="CAM-YEAR1", kpi_name="fire_smoke", alert_type="fire", frame_idx=1, confidence=0.9)
+    old_alert_a = create_alert(camera_id="CAM-YEAR1", kpi_name="fire_smoke", alert_type="fire", frame_idx=2, confidence=0.9)
+    old_alert_b = create_alert(camera_id="CAM-YEAR1", kpi_name="ppe", alert_type="no_helmet", frame_idx=3, confidence=0.8)
+    create_alert(camera_id="CAM-YEAR2", kpi_name="fire_smoke", alert_type="fire", frame_idx=4, confidence=0.9)
+
+    for alert_id in (old_alert_a, old_alert_b):
+        row = db_session.get(Alert, alert_id)
+        row.created_at = datetime(2024, 6, 1)
+        db_session.add(row)
+    db_session.commit()
+
+    current_year = str(datetime.utcnow().year)
+
+    resp1 = client.get("/api/cameras/CAM-YEAR1", headers=owner["headers"])
+    assert resp1.status_code == 200, resp1.text
+    assert resp1.json()["alerts_by_year"] == {current_year: 1, "2024": 2}
+
+    resp2 = client.get("/api/cameras/CAM-YEAR2", headers=owner["headers"])
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.json()["alerts_by_year"] == {current_year: 1}
+
+
 # ── Update ────────────────────────────────────────────────────────────────────
 
 def test_update_camera_partial(client, owner):

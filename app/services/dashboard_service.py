@@ -162,17 +162,6 @@ def get_cameras(db: Session, user: dict) -> DashboardCamerasResponse:
         if priority_ids else {}
     )
 
-    # One query for every visible camera's alerts, bucketed by (camera_id,
-    # year) in Python — same day-bucketing approach as get_alert_chart
-    # above, just grouped by year and across every camera instead of one.
-    camera_ids = [c.camera_id for c in cameras]
-    alerts_by_year_by_camera: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    if camera_ids:
-        alerts = db.exec(select(Alert).where(Alert.camera_id.in_(camera_ids))).all()
-        for a in alerts:
-            year = str(a.created_at.year)
-            alerts_by_year_by_camera[a.camera_id][year] += 1
-
     items = []
     for c in cameras:
         zone = zones_by_id.get(c.zone_id)
@@ -187,7 +176,6 @@ def get_cameras(db: Session, user: dict) -> DashboardCamerasResponse:
             status="active" if c.enabled else "inactive",
             connectivity_status=c.connectivity_status,
             stream_status=stream_status,
-            alerts_by_year=dict(alerts_by_year_by_camera.get(c.camera_id, {})),
         ))
 
     return DashboardCamerasResponse(count=len(items), cameras=items)

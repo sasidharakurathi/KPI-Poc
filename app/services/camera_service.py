@@ -9,6 +9,7 @@ kpi_model_ids references Phase 3's KPI Management capability table, which
 doesn't exist yet. Bulk endpoints, the camera-offline heartbeat monitor, and
 audit-log wiring are deferred to when Phases 3/4/8 land.
 """
+from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
@@ -17,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.config_loader import get_kpi_registry
+from app.db.models import Alert
 from app.db.models.camera import Camera
 from app.db.models.domain_config import Priority, Zone
 from app.email_crypto import EmailCryptoNotConfigured, encrypt_secret
@@ -106,6 +108,18 @@ def _kpi_details(kpi_ids: list[int]) -> list[CameraKPIDetail]:
     ]
 
 
+def _alerts_by_year(db: Session, camera_id: str) -> dict[str, int]:
+    """This camera's own alert history, summed across every KPI and grouped
+    by calendar year — e.g. {"2025": 12, "2026": 45}. Same year-bucketing
+    approach as app.services.dashboard_service.get_alert_chart's day
+    buckets, just for one camera's full history instead of a date range."""
+    alerts = db.exec(select(Alert).where(Alert.camera_id == camera_id)).all()
+    counts: dict[str, int] = defaultdict(int)
+    for a in alerts:
+        counts[str(a.created_at.year)] += 1
+    return dict(counts)
+
+
 def _to_camera_response(db: Session, cam: Camera) -> CameraResponse:
     zone = db.get(Zone, cam.zone_id) if cam.zone_id is not None else None
     priority = db.get(Priority, cam.priority_id) if cam.priority_id is not None else None
@@ -133,6 +147,7 @@ def _to_camera_response(db: Session, cam: Camera) -> CameraResponse:
         stream_status=stream_status["status"],
         stream_error=stream_status["error"],
         created_at=cam.created_at.isoformat(),
+        alerts_by_year=_alerts_by_year(db, cam.camera_id),
     )
 
 
