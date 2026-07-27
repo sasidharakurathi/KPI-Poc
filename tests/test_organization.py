@@ -169,11 +169,11 @@ def test_upload_logo_succeeds_and_sets_base64(client, db_session):
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # the upload response itself echoes the saved image back as base64 —
+    # the upload response itself echoes the saved image back as base64 -
     # decoding it must round-trip to exactly what was saved
     assert _b64.b64decode(body["logo_base64"]) == image_bytes
 
-    # GET reflects the same logo_base64 afterwards — not just the upload response.
+    # GET reflects the same logo_base64 afterwards - not just the upload response.
     get_resp = client.get("/api/organization", headers=headers)
     assert _b64.b64decode(get_resp.json()["logo_base64"]) == image_bytes
 

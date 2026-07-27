@@ -7,7 +7,7 @@ from sqlalchemy import JSON as _JSON
 
 class EmailLog(SQLModel, table=True):
     """One row per attempted alert-notification email (sent or failed)."""
-    __tablename__ = "email_logs"  # type: ignore[assignment]
+    __tablename__ = "email_logs"  
 
     id: Optional[int] = Field(default=None, primary_key=True)
     alert_id: Optional[int] = Field(default=None, index=True)
@@ -17,6 +17,6 @@ class EmailLog(SQLModel, table=True):
     camera_name: Optional[str] = None
     subject: str = ""
     recipients: list = Field(default_factory=list, sa_column=Column(_JSON))
-    status: str = Field(default="sent", index=True)   # "sent" | "failed"
+    status: str = Field(default="sent", index=True)   
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)

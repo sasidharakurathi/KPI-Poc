@@ -57,7 +57,7 @@ def get_role(db: Session, org_id: Optional[int], role_id: int) -> RoleResponse:
 
 def user_counts(db: Session, org_id: Optional[int]) -> dict[str, int]:
     """Keyed by role id (string, matching the frontend's Record<string, number>),
-    excluding soft-deleted users — mirrors the frontend mock's rolesApi.userCounts()."""
+    excluding soft-deleted users - mirrors the frontend mock's rolesApi.userCounts()."""
     users = db.exec(
         select(User).where(User.org_id == org_id, User.status != "soft_deleted")
     ).all()
@@ -112,8 +112,6 @@ def create_role(db: Session, user: dict, payload: RoleInput) -> RoleResponse:
     try:
         db.commit()
     except IntegrityError:
-        # Backstop for the TOCTOU race in the name-uniqueness check above —
-        # two concurrent creates with the same name can both pass it.
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, f'A role named "{name}" already exists.')
     db.refresh(role)

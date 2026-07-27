@@ -1,7 +1,7 @@
 """Idempotent schema migrations.
 
 Run on startup when MIGRATION_ENABLED=True. Every function here is safe to call
-repeatedly — it checks current schema state before issuing any DDL.
+repeatedly - it checks current schema state before issuing any DDL.
 
 How to give permission:
   Set MIGRATION_ENABLED=True in .env, then restart the server.
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _add_columns(engine, table_name: str, columns: list[tuple[str, str, str]]) -> None:
-    """Add columns to an existing table — no-op for columns that already exist.
+    """Add columns to an existing table - no-op for columns that already exist.
 
     columns: list of (name, sql_type, default_clause) e.g. ("zone_id", "INTEGER", "")
     """
@@ -66,7 +66,7 @@ def _migrate_legacy_stream_columns(engine) -> None:
 
 def _migrate_users(engine) -> None:
     """Phase 0 additions: last_login_at (Roles/Users screens) and mfa_enabled
-    (PRD §2.3 — off by default, not required this phase, but cheap to seed now)."""
+    (PRD §2.3 - off by default, not required this phase, but cheap to seed now)."""
     _add_columns(engine, "users", [
         ("last_login_at",  "TIMESTAMP", ""),
         ("mfa_enabled",    "BOOLEAN",   " DEFAULT FALSE"),
@@ -78,7 +78,7 @@ def _migrate_roles(engine) -> None:
     """Some pre-existing databases were created from an earlier, abandoned
     schema attempt (see the leftover `alembic_version` table) that named this
     column `role_name` and never had `is_system`/`org_id` at all; the current
-    Role model (app/db/models/role.py) needs all three. Rename + add — safe
+    Role model (app/db/models/role.py) needs all three. Rename + add - safe
     as a no-op once already applied, and only ever run against a table with
     no rows referencing the old shape."""
     inspector = _inspect(engine)
@@ -98,7 +98,7 @@ def _migrate_roles(engine) -> None:
 
 
 def _migrate_organizations(engine) -> None:
-    """Adds default_timezone_id — real FK into the static timezones catalog,
+    """Adds default_timezone_id - real FK into the static timezones catalog,
     superseding the old free-text default_timezone column (left in place, unused)."""
     _add_columns(engine, "organizations", [
         ("default_timezone_id", "INTEGER", ""),
@@ -106,7 +106,7 @@ def _migrate_organizations(engine) -> None:
 
 
 def _migrate_zones(engine) -> None:
-    """Adds timezone_id — real FK into the static timezones catalog,
+    """Adds timezone_id - real FK into the static timezones catalog,
     superseding the old free-text timezone column (left in place, unused)."""
     _add_columns(engine, "zones", [
         ("timezone_id", "INTEGER", ""),
@@ -114,7 +114,7 @@ def _migrate_zones(engine) -> None:
 
 
 def _migrate_priorities(engine) -> None:
-    """Adds level (severity rank, 1 = highest; 99 = unranked) — needed so
+    """Adds level (severity rank, 1 = highest; 99 = unranked) - needed so
     Phase 2's camera-list enrichment can surface priority_level like the
     frontend expects."""
     _add_columns(engine, "priorities", [
@@ -124,13 +124,13 @@ def _migrate_priorities(engine) -> None:
 
 def _migrate_alerts(engine) -> None:
     """Phase 4: adds alerts.camera_id (direct FK) and relaxes job_id/frame_idx
-    to nullable — the camera-offline heartbeat monitor creates connectivity
+    to nullable - the camera-offline heartbeat monitor creates connectivity
     alerts with no underlying video-processing job and no frame. Backfills
     camera_id from the existing job_id join for every pre-existing row, so
     REST/websocket zone-scoping can filter on Alert.camera_id directly
     without joining Job at query time.
 
-    The nullability relax only runs on Postgres — SQLite (pytest's throwaway
+    The nullability relax only runs on Postgres - SQLite (pytest's throwaway
     DB) always gets a fresh, already-nullable schema via create_all, so
     there's nothing to alter there."""
     inspector = _inspect(engine)
@@ -162,7 +162,7 @@ def _migrate_alerts(engine) -> None:
 
 def _migrate_alert_org_id(engine) -> None:
     """Adds alerts.org_id and backfills every existing row from its camera
-    (Alert.camera_id -> Camera.org_id) — the direct link that makes org-
+    (Alert.camera_id -> Camera.org_id) - the direct link that makes org-
     scoped alert filtering possible without a join at query time. A handful
     of legacy rows might have camera_id but no matching camera anymore (a
     since-deleted camera); those are left with org_id=NULL and are simply
@@ -191,7 +191,7 @@ def _backfill_camera_org_id(engine) -> None:
     org_id=NULL. This is a one-time backfill for those legacy rows: they're
     attributed to the first organization ever registered on this deployment
     (lowest id), the same convention app.db.seed_cameras uses going forward
-    for newly-seeded cameras — config.json still represents one physical
+    for newly-seeded cameras - config.json still represents one physical
     camera fleet, regardless of how many organizations now exist on top of
     it. A no-op if no organization has been registered yet."""
     inspector = _inspect(engine)
@@ -204,7 +204,7 @@ def _backfill_camera_org_id(engine) -> None:
 
 
 def _migrate_audit_logs(engine) -> None:
-    """Adds summary — a human-readable one-liner (e.g. 'Created camera
+    """Adds summary - a human-readable one-liner (e.g. 'Created camera
     "CAM-01".'), matching the frontend's AuditLogEntry.summary field, which
     the original entity_type/entity_name/before/after shape didn't cover."""
     _add_columns(engine, "audit_logs", [
@@ -218,7 +218,7 @@ def _rescope_unique_constraint_to_org(engine, table_name: str, column: str, org_
 
     Several org-scoped tables (Priority.name, EmailServer.label,
     KpiModelCatalog.name, Role.name) were originally declared with a
-    column-level `unique=True` in SQLModel — a global constraint — even
+    column-level `unique=True` in SQLModel - a global constraint - even
     though every endpoint's own duplicate-check has always been scoped to
     org_id. That mismatch was invisible on a single-org deployment (there
     was only ever one org to collide within) and becomes a real bug the
@@ -256,7 +256,7 @@ def _rescope_unique_constraint_to_org(engine, table_name: str, column: str, org_
 
 def _migrate_multi_org_unique_constraints(engine) -> None:
     """SQLite (pytest's throwaway DB) always gets the composite constraint
-    fresh via create_all — this only needs to run against Postgres, where
+    fresh via create_all - this only needs to run against Postgres, where
     these tables may already exist with the old global constraint."""
     if engine.dialect.name != "postgresql":
         return
@@ -268,12 +268,12 @@ def _migrate_multi_org_unique_constraints(engine) -> None:
 def _dedupe_and_make_globally_unique(engine, table_name: str, column: str) -> None:
     """The reverse of _rescope_unique_constraint_to_org: drops a composite
     (org_id, column) unique constraint (or adds none if there wasn't one)
-    and replaces it with a plain UNIQUE(column) — used for tables that used
+    and replaces it with a plain UNIQUE(column) - used for tables that used
     to be per-org but are now shared across every organization
     (kpi_model_catalog, kpi_configuration).
 
     If two different orgs already created a row with the same value (e.g.
-    two "Fire & Smoke Model" rows), a straight ADD CONSTRAINT would fail —
+    two "Fire & Smoke Model" rows), a straight ADD CONSTRAINT would fail -
     so any duplicates are deduped first, keeping the lowest id (oldest row)
     and deleting the rest. This is a real, logged data change, not just a
     schema change; duplicates are expected to be rare-to-nonexistent since
@@ -316,7 +316,7 @@ def _dedupe_and_make_globally_unique(engine, table_name: str, column: str) -> No
 
 def _migrate_kpi_catalog_to_global(engine) -> None:
     """kpi_model_catalog and kpi_configuration became shared across every
-    organization instead of per-org — see both models' docstrings. Only
+    organization instead of per-org - see both models' docstrings. Only
     needs to run on Postgres; SQLite (pytest) always gets the global
     constraint fresh via create_all."""
     if engine.dialect.name != "postgresql":
@@ -326,11 +326,11 @@ def _migrate_kpi_catalog_to_global(engine) -> None:
 
 
 def _migrate_kpi_configuration(engine) -> None:
-    """Phase 3 (team-built, audited 2026-07-21): adds org_id — the table had
-    none at all, so every row was visible regardless of org — and converts
+    """Phase 3 (team-built, audited 2026-07-21): adds org_id - the table had
+    none at all, so every row was visible regardless of org - and converts
     assigned_models/parameters from manually json.dumps()-serialized TEXT to
-    native JSON columns (every other JSON-bearing column in this codebase —
-    Alert.extra, Role.permissions, AuditLog.before/after — uses SQLModel's
+    native JSON columns (every other JSON-bearing column in this codebase -
+    Alert.extra, Role.permissions, AuditLog.before/after - uses SQLModel's
     JSON type; TEXT meant these fields couldn't be queried, and a malformed
     stored string would silently break response validation instead of
     failing cleanly). The TEXT->JSON conversion only runs on Postgres and is

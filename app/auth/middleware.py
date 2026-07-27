@@ -4,15 +4,8 @@ from starlette.responses import JSONResponse
 
 from .jwt_utils import InvalidTokenError, JWTNotConfigured, decode_access_token
 
-# Exact paths that stay reachable without a token even when JWT_AUTH_ENABLED=True.
 _EXCLUDED_EXACT = {"/health", "/docs", "/redoc", "/openapi.json"}
 
-# Path prefixes the live frontend already calls today WITHOUT an Authorization
-# header (see docs/IMPLEMENTATION_PLAN.md, Context item 4). Locking these down
-# would break the one part of the app that currently works end-to-end, so they
-# stay excluded from the hard gate even after auth is turned on globally.
-# /media/ is also excluded: organization logos are public brand assets that
-# must render on a pre-login screen (see app.main's StaticFiles mount).
 _EXCLUDED_PREFIXES = ("/api/videos/", "/api/settings/", "/media/")
 
 
@@ -24,7 +17,7 @@ def _is_excluded(path: str) -> bool:
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     """Opportunistically decodes a Bearer token on every request, populating
-    ``request.state.user`` whenever a caller does send one — independent of
+    ``request.state.user`` whenever a caller does send one - independent of
     JWT_AUTH_ENABLED. This lets route-level ``Depends(require_auth)`` /
     ``Depends(require_permission(...))`` work correctly (e.g. from curl,
     Swagger, or pytest) even while JWT_AUTH_ENABLED stays False globally.
@@ -32,7 +25,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     JWT_AUTH_ENABLED only controls whether a *missing* token is hard-rejected
     here, for paths outside the excluded set. It is kept False by default so
     the frontend's still-unauthenticated real calls (videos/settings/health)
-    are not locked out — per-route dependencies are what actually protect the
+    are not locked out - per-route dependencies are what actually protect the
     new Phase 0+ endpoints in the meantime.
     """
 

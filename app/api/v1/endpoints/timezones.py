@@ -1,9 +1,9 @@
-"""Timezone catalog endpoint — Phase 1.
+"""Timezone catalog endpoint - Phase 1.
 
 Implements:
   GET /api/timezones   List every enabled timezone (id, abbreviation, name, offsets)
 
-Static, non-editable reference data — deliberately no POST/PUT/DELETE/PATCH.
+Static, non-editable reference data - deliberately no POST/PUT/DELETE/PATCH.
 Seeded once at startup (app/db/seed_data/timezones.py) from a fixed ~200-row
 list transcribed from the org's reference schema script.
 
@@ -28,5 +28,5 @@ router = APIRouter(prefix="/api/timezones", tags=["timezones"])
 @router.get("", response_model=list[TimezoneResponse])
 def list_timezones(session: DbSession) -> list[Timezone]:
     return session.exec(
-        select(Timezone).where(Timezone.enabled == True).order_by(Timezone.abbreviation)  # noqa: E712
+        select(Timezone).where(Timezone.enabled == True).order_by(Timezone.abbreviation)
     ).all()

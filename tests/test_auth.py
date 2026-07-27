@@ -61,7 +61,7 @@ def test_register_second_org_succeeds(client, db_session):
 
 
 def test_register_second_org_same_username_rejected(client):
-    """Username stays globally unique across every organization — login has
+    """Username stays globally unique across every organization - login has
     no org selector, so two accounts sharing a username would be ambiguous."""
     first = _register(client)
     assert first.status_code == 201, first.text
@@ -178,7 +178,7 @@ def test_logout_revokes_refresh_token_and_kills_the_live_access_token(client, db
     reuse = client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
     assert reuse.status_code == 401
 
-    # ...and so is the still-unexpired access token issued before logout —
+    # ...and so is the still-unexpired access token issued before logout -
     # this is the whole point: revocation doesn't wait for JWT expiry.
     after_logout = client.get("/api/auth/me", headers=headers)
     assert after_logout.status_code == 401
@@ -193,11 +193,11 @@ def test_forgot_password_unknown_email_is_silent_200(client, db_session):
 def test_forgot_password_for_unknown_email_is_silent_200(client):
     """Multi-tenant: which org's default email server (if any) would matter
     can only be known once a matching user is resolved, so an email that
-    doesn't match any account — including when no organization has even
-    registered yet — returns the same generic 200 rather than revealing
+    doesn't match any account - including when no organization has even
+    registered yet - returns the same generic 200 rather than revealing
     anything. (The single-org predecessor of this test asserted a 422 here,
     on the reasoning that "no org exists" was a deployment-wide fact safe to
-    surface before any per-email lookup — that reasoning doesn't hold once
+    surface before any per-email lookup - that reasoning doesn't hold once
     multiple orgs, each with independent email config, are possible.)"""
     resp = client.post("/api/auth/forgot-password", json={"email": "nobody@example.com"})
     assert resp.status_code == 200
@@ -205,7 +205,7 @@ def test_forgot_password_for_unknown_email_is_silent_200(client):
 
 def test_forgot_password_for_real_user_without_default_email_server_422s(client, db_session, monkeypatch):
     """A *real* account whose org has no default email server configured
-    still hard-fails with 422 — surfacing misconfiguration clearly, per
+    still hard-fails with 422 - surfacing misconfiguration clearly, per
     app.services.auth_service.request_password_reset's docstring."""
     payload = _register_and_activate(client, db_session)
 
@@ -295,7 +295,7 @@ def test_change_password_requires_current_password(client, db_session):
 def test_disabling_a_user_kills_their_live_access_token(client, db_session):
     """Phase 7's disable/delete endpoints don't exist yet, but the mechanism
     they'll rely on (require_auth re-checking User.status on every request)
-    is already live — flip the status directly to prove it."""
+    is already live - flip the status directly to prove it."""
     payload = _register_and_activate(client, db_session)
     login_resp = client.post(
         "/api/auth/login", json={"username": payload["username"], "password": payload["password"]}
@@ -395,7 +395,7 @@ def test_register_rejects_whitespace_only_names(client):
 
 def test_register_integrity_error_becomes_409_not_500(client, monkeypatch):
     """Simulates a race two concurrent registrations could hit (e.g. the same
-    username, or a slug collision app-level dedup didn't catch in time) —
+    username, or a slug collision app-level dedup didn't catch in time) -
     the DB-level unique constraint still fires and must surface as 409, not
     an unhandled 500. Deterministic monkeypatch instead of real thread
     concurrency, which is flaky against SQLite's write-locking behavior."""

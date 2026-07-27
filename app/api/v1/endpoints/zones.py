@@ -1,4 +1,4 @@
-"""Zone configuration endpoints — Phase 1.
+"""Zone configuration endpoints - Phase 1.
 
 Implements:
   GET    /api/config/zones
@@ -10,7 +10,7 @@ Implements:
   PATCH  /api/config/zones/{id}/toggle
 
 org_id is always derived from the authenticated caller (require_permission),
-never from the request body — see app/schemas/config.py's module docstring.
+never from the request body - see app/schemas/config.py's module docstring.
 
 Models used: Zone (app.db.models.domain_config)
 Schemas: ZoneCreate, ZoneResponse (app.schemas.config)
@@ -66,7 +66,7 @@ async def zone_camera_counts(
     session: DbSession,
     user: dict = Depends(require_permission("configuration", "view")),
 ):
-    """Camera count per zone, for the caller's org — Record<zone_id, count>,
+    """Camera count per zone, for the caller's org - Record<zone_id, count>,
     keyed by zone_id as a string. Zones with no cameras simply don't appear
     (matching the frontend's own accumulate-as-you-go mock behavior); cameras
     with no zone assigned yet aren't counted anywhere."""

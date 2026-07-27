@@ -1,4 +1,4 @@
-"""Organization settings endpoints — Phase 0.
+"""Organization settings endpoints - Phase 0.
 
 Implements:
   GET  /api/organization         Get the caller's own organization
@@ -8,9 +8,9 @@ Implements:
 
 This is a multi-tenant deployment: any number of organizations can exist.
 GET/PUT "/api/organization" (singular) always operate on the caller's own
-org, resolved from their JWT — never from a client-supplied id, exactly like
+org, resolved from their JWT - never from a client-supplied id, exactly like
 every other org-scoped resource in this codebase. "/api/organizations"
-(plural) is the one deliberate exception — it crosses tenant boundaries by
+(plural) is the one deliberate exception - it crosses tenant boundaries by
 design, so it's gated more strictly (is_system/Owner role, not just
 organization_settings permission, which is granted per-org and would
 otherwise let one org's admin enumerate every other org).
@@ -19,10 +19,10 @@ Per the confirmed Phase 0 decision, there is no separate Site entity: the
 Organization row carries its site fields (site_name/site_address/latitude/
 longitude) directly.
 
-The logo endpoint takes base64 (JSON body), not a multipart file upload —
+The logo endpoint takes base64 (JSON body), not a multipart file upload -
 simpler for the frontend (no separate FormData request). The decoded image
 is saved to disk under settings.LOGOS_DIR for persistence, and read back as
-base64 on every response (logo_base64) — there is no logo_url; callers get
+base64 on every response (logo_base64) - there is no logo_url; callers get
 the image data directly rather than a link to fetch it separately. The image
 type is determined by sniffing the decoded bytes' own magic number rather
 than trusting a client-declared content type.
@@ -50,9 +50,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/organization", tags=["organization"])
 organizations_router = APIRouter(prefix="/api/organizations", tags=["organization"])
 
-# Signature-sniffing, not a client-declared content type — the first rule
-# whose bytes match wins. SVG is checked separately (it's text, not a fixed
-# binary magic number) after none of these match.
 _MAGIC_SIGNATURES: list[tuple[bytes, str]] = [
     (b"\x89PNG\r\n\x1a\n", ".png"),
     (b"\xff\xd8\xff", ".jpg"),
@@ -144,7 +141,7 @@ def upload_organization_logo(
     user: dict = Depends(require_permission("organization_settings", "edit")),
 ) -> OrganizationResponse:
     """Creates the org's logo if it doesn't have one yet, or replaces the
-    existing one — same endpoint either way, matching how PUT /api/organization
+    existing one - same endpoint either way, matching how PUT /api/organization
     handles create-vs-update for every other field. The old file (if any) is
     deleted from disk after the new one is saved."""
     org = _get_own_org(db, user)
@@ -153,7 +150,7 @@ def upload_organization_logo(
     if len(content) > settings.LOGO_MAX_SIZE_BYTES:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
-            f"Logo image too large — max {settings.LOGO_MAX_SIZE_BYTES // (1024 * 1024)} MB.",
+            f"Logo image too large - max {settings.LOGO_MAX_SIZE_BYTES // (1024 * 1024)} MB.",
         )
     ext = _sniff_image_extension(content)
     if ext is None:
@@ -188,7 +185,7 @@ def list_organizations(
     db: DbSession,
     user: dict = Depends(require_auth),
 ) -> list[OrganizationResponse]:
-    """Every organization on this deployment — crosses tenant boundaries by
+    """Every organization on this deployment - crosses tenant boundaries by
     design, so it's restricted to callers whose role is_system=True (the
     built-in Owner role), not merely organization_settings.view (which is
     granted per-org and would otherwise let one org's admin enumerate every

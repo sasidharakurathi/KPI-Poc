@@ -3,7 +3,7 @@
 Covers: log_action() being called correctly from Camera/Role/User mutations
 (Phase 2/6/7 retrofit), Configuration (Phase 1) writes staying un-audited
 per the frontend's own scope, filtering, and the permission gate. No
-zone-scoping — see app/services/audit_service.py's module docstring.
+zone-scoping - see app/services/audit_service.py's module docstring.
 """
 from app.core.security import hash_password
 from app.db.models import Role, User

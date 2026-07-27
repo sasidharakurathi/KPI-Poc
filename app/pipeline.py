@@ -76,7 +76,7 @@ def _run_kpi(
     if exc_store:
         logger.error(f"[{kpi.name}] failed in {elapsed:.2f}s: {exc_store}", exc_info=exc_store)
     else:
-        logger.info(f"[{kpi.name}] done in {elapsed:.2f}s — {result.summary}")
+        logger.info(f"[{kpi.name}] done in {elapsed:.2f}s - {result.summary}")
 
     return kpi.name, result, elapsed, coll, exc_store
 
@@ -88,7 +88,7 @@ def run_pipeline(
 ) -> None:
     job_manager.update(job_id, JobStatus.PROCESSING)
     pipeline_start = time.perf_counter()
-    logger.info(f"[pipeline] job {job_id} started — filter: {kpi_names or 'all'}")
+    logger.info(f"[pipeline] job {job_id} started - filter: {kpi_names or 'all'}")
 
     try:
         all_kpis = get_registered_kpis()
@@ -124,16 +124,13 @@ def run_pipeline(
         if split_kpis:
             source = SharedFrameSource(video_path, len(split_kpis))
             source.start()
-            # Sized exactly to this job's split-KPI count so every one starts
-            # immediately -- otherwise a queued KPI would leave the shared
-            # decoder blocked trying to feed it, starving its siblings too.
             split_executor = ThreadPoolExecutor(
                 max_workers=len(split_kpis), thread_name_prefix=f"kpi-split-{job_id[:8]}"
             )
         if legacy_kpis:
             logger.info(
                 f"[pipeline] job {job_id}: {[k.name for k in legacy_kpis]} "
-                f"not on the split contract — decoding independently"
+                f"not on the split contract - decoding independently"
             )
 
         executor = _get_executor()
@@ -150,7 +147,7 @@ def run_pipeline(
                     if coll:
                         model_logs.extend(coll.to_model_logs())
                     if exc:
-                        logger.error(f"[{kpi_name}] KPI failed — excluded from output")
+                        logger.error(f"[{kpi_name}] KPI failed - excluded from output")
                     else:
                         kpi_results[name] = result
                         kpi_timings[name] = round(elapsed, 2)
@@ -161,11 +158,11 @@ def run_pipeline(
                 split_executor.shutdown(wait=True)
 
         if not kpi_results:
-            raise RuntimeError("All KPIs failed — no results produced.")
+            raise RuntimeError("All KPIs failed - no results produced.")
 
         total_elapsed = time.perf_counter() - pipeline_start
         logger.info(
-            f"[pipeline] job {job_id} completed in {total_elapsed:.2f}s — "
+            f"[pipeline] job {job_id} completed in {total_elapsed:.2f}s - "
             f"KPIs: {kpi_timings}"
         )
 

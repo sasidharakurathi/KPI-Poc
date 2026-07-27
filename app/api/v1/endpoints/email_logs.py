@@ -27,7 +27,7 @@ async def get_email_logs(
         try:
             return datetime.fromisoformat(d)
         except ValueError:
-            raise HTTPException(status_code=422, detail=f"Invalid date '{d}' — expected ISO 8601.")
+            raise HTTPException(status_code=422, detail=f"Invalid date '{d}' - expected ISO 8601.")
 
     rows, total = query_email_logs(
         status=status, kpi_name=kpi_name, camera_id=camera_id,

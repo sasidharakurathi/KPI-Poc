@@ -1,7 +1,7 @@
 """Phase 4 (Real-Time) tests: the ws_manager pub-sub core, and the
 /api/ws/alerts WebSocket endpoint's auth handshake.
 
-ws_manager's async methods are exercised directly via asyncio.run() — no
+ws_manager's async methods are exercised directly via asyncio.run() - no
 pytest-asyncio plugin needed, and no real FastAPI WebSocket required for
 those (a tiny fake with an async send_json is enough). The endpoint's auth/
 connect/reject behavior is tested through TestClient.websocket_connect(),

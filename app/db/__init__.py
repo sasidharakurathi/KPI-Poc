@@ -56,16 +56,16 @@ def create_alert(
 ) -> int:
     """camera_id is auto-resolved from the job when omitted (the normal case
     for video-detection alerts). Pass it explicitly for alerts with no job at
-    all — e.g. app.services.camera_heartbeat's connectivity alerts.
+    all - e.g. app.services.camera_heartbeat's connectivity alerts.
 
-    org_id is always resolved from the camera (never accepted as a param —
+    org_id is always resolved from the camera (never accepted as a param -
     there's no legitimate caller that would know an org_id but not go
     through a real camera) so every alert can be filtered by org without a
     join at query time. A camera-less alert has no org either, and is
-    invisible to every org-scoped query — see app.services.alert_service.
+    invisible to every org-scoped query - see app.services.alert_service.
 
     Broadcasts 'alert.created' over the realtime websocket (Phase 4) after
-    committing — best-effort, never allowed to fail the alert itself."""
+    committing - best-effort, never allowed to fail the alert itself."""
     with get_session_ctx() as session:
         resolved_camera_id = camera_id
         if resolved_camera_id is None and job_id:
@@ -99,7 +99,7 @@ def create_alert(
     except Exception:
         logger.exception("[db] failed to broadcast alert.created for alert %s", alert.id)
 
-    return alert.id  # type: ignore[return-value]
+    return alert.id
 
 
 def add_alert_frames(
@@ -167,12 +167,6 @@ def get_job(job_id: str) -> Optional[Job]:
 def seed_cameras(cameras: dict[str, dict]) -> None:
     with get_session_ctx() as session:
         existing = set(session.exec(select(Camera.camera_id)).all())
-        # config.json represents one physical camera fleet, regardless of how
-        # many organizations exist on this deployment — newly-seeded cameras
-        # are attributed to the first organization ever registered (lowest
-        # id), so they're visible through the org-scoped /api/cameras
-        # endpoints right away instead of landing with org_id=NULL (see also
-        # migrations._backfill_camera_org_id for rows from before any org existed).
         org = session.exec(select(Organization).order_by(Organization.id)).first()
         for camera_id, cam in cameras.items():
             if camera_id in existing:
@@ -190,7 +184,7 @@ def seed_cameras(cameras: dict[str, dict]) -> None:
 
 def list_cameras() -> list[Camera]:
     with get_session_ctx() as session:
-        return list(session.exec(select(Camera).order_by(Camera.camera_id)).all())  # type: ignore[arg-type]
+        return list(session.exec(select(Camera).order_by(Camera.camera_id)).all())
 
 
 def get_camera(camera_id: str) -> Optional[Camera]:
@@ -292,7 +286,7 @@ def get_config(name: str) -> Optional[dict]:
         try:
             return json.loads(row.value)
         except (json.JSONDecodeError, TypeError):
-            logger.warning("[config] '%s' has invalid JSON — ignoring", name)
+            logger.warning("[config] '%s' has invalid JSON - ignoring", name)
             return None
 
 
@@ -316,7 +310,7 @@ def set_config(name: str, value: dict) -> dict:
 
 def list_configs() -> list[Configuration]:
     with get_session_ctx() as session:
-        return list(session.exec(select(Configuration).order_by(Configuration.name)).all())  # type: ignore[arg-type]
+        return list(session.exec(select(Configuration).order_by(Configuration.name)).all())
 
 
 # ── Email log helpers ─────────────────────────────────────────────────────────
@@ -341,7 +335,7 @@ def create_email_log(
         session.add(log)
         session.commit()
         session.refresh(log)
-        return log.id  # type: ignore[return-value]
+        return log.id
 
 
 _EMAIL_LOG_SORT_COLUMNS: dict[str, Any] = {
@@ -398,17 +392,15 @@ def _alert_to_dict(alert: Alert, session: Session) -> dict:
     frames = session.exec(
         select(AlertFrame)
         .where(AlertFrame.alert_id == alert.id)
-        .order_by(AlertFrame.position)  # type: ignore[arg-type]
+        .order_by(AlertFrame.position)
     ).all()
-    # camera_name comes from the live Camera row (not a snapshot frozen on the
-    # Job at upload time), matching how zone_name/priority_name etc. are
-    # always resolved live elsewhere in this app.
+
     camera = session.get(Camera, alert.camera_id) if alert.camera_id else None
     return {
         "id": alert.id,
         "job_id": alert.job_id,
         "camera_id": alert.camera_id,
-        "org_id": alert.org_id,  # internal only — not part of AlertResponse, used for org-scope checks
+        "org_id": alert.org_id, 
         "camera_name": camera.name if camera else None,
         "kpi_name": alert.kpi_name,
         "alert_type": alert.alert_type,
@@ -452,15 +444,15 @@ def query_alerts(
     org_id: Optional[int] = None,
 ) -> tuple[list[dict], int]:
     """allowed_camera_ids: None = unrestricted (default, preserves existing
-    behavior for every caller that doesn't pass it — e.g. videos.py). A
-    non-None set restricts results to alerts whose camera_id is in it —
+    behavior for every caller that doesn't pass it - e.g. videos.py). A
+    non-None set restricts results to alerts whose camera_id is in it -
     Phase 4's zone-scoping (see app.services.alert_service), which also means
     camera-less alerts are excluded whenever a restriction is active.
 
     org_id: None = unrestricted (default, preserves videos.py's existing
-    job_id-scoped behavior — it has no caller org to filter by). Every
+    job_id-scoped behavior - it has no caller org to filter by). Every
     org-aware caller (app.services.alert_service) always passes its caller's
-    org_id — this is the actual tenant-isolation filter; allowed_camera_ids
+    org_id - this is the actual tenant-isolation filter; allowed_camera_ids
     on top of it is zone-scoping *within* that org, not a substitute for it."""
     with get_session_ctx() as session:
         stmt = select(Alert)

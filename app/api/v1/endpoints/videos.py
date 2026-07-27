@@ -62,17 +62,6 @@ async def upload_video(
         if not cam:
             raise HTTPException(status_code=404, detail=f"Camera '{camera_id}' not found.")
         camera_name = cam.name
-        # kpi_ids (legacy numeric, mapped via config.json's kpi_registry) is
-        # the camera's primary KPI assignment for video processing. Cameras
-        # created/edited through the newer KPI Management flow (Phase 3) may
-        # only carry kpi_model_ids instead — those are already validated
-        # registered-KPI-name strings (see
-        # app.services.camera_service._resolve_kpi_model_ids_or_422), so they
-        # work as a direct fallback with no id-mapping needed. A camera with
-        # neither assigned falls back to running every registered KPI,
-        # matching the kpis_running field computed below (kept in sync with
-        # it here so the response's "Running N KPI(s)" claim matches what
-        # actually runs).
         kpis_requested = resolve_kpi_names(cam.kpi_ids) or list(cam.kpi_model_ids)
         kpi_names_to_run = kpis_requested or None
 

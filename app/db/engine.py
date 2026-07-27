@@ -30,8 +30,7 @@ def init_db() -> None:
     from .migrations import run_migrations
     from app.config import settings
 
-    # Import all models so SQLModel metadata is populated before create_all.
-    from .models import (  # noqa: F401
+    from .models import (
         AuditLog, Camera, Configuration, EmailLog, EmailServer,
         Job, Alert, AlertFrame,
         KpiModelCatalog, Organization, Priority, RefreshToken,
@@ -40,21 +39,19 @@ def init_db() -> None:
 
     engine = get_engine()
 
-    # Column additions and new-table creation are always safe (idempotent, additive only).
-    # The MIGRATION_ENABLED flag is reserved for future complex/destructive migrations.
     run_migrations(engine)
     _seed_timezones_if_empty(engine)
     if settings.MIGRATION_ENABLED:
-        logger.info("[db] MIGRATION_ENABLED=True — full migration suite applied")
+        logger.info("[db] MIGRATION_ENABLED=True - full migration suite applied")
     else:
         logger.info("[db] schema sync complete")
 
 
 def _seed_timezones_if_empty(engine) -> None:
     """The `timezones` table is static, global reference data (not
-    per-organization) — seeded once, on any startup that finds it empty.
+    per-organization) - seeded once, on any startup that finds it empty.
     Never touched by any write endpoint (see app/api/v1/endpoints/timezones.py
-    — read-only by design)."""
+    - read-only by design)."""
     from sqlmodel import select
 
     from .models import Timezone

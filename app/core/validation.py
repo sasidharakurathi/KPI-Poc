@@ -39,7 +39,7 @@ def validate_phone(value: str) -> str:
 def validate_non_blank(value: str, field_label: str = "This field") -> str:
     """Pydantic's min_length counts raw characters, so "  " (two spaces)
     passes a min_length=2 check and then gets silently stripped to "" by
-    whichever service function calls .strip() on it — e.g. a role or
+    whichever service function calls .strip() on it - e.g. a role or
     organization ending up with an empty-string name. Reject whitespace-only
     input at the schema boundary instead. Returns the stripped value."""
     stripped = value.strip()

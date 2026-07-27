@@ -1,17 +1,17 @@
-"""Alert endpoints — Phase 4.
+"""Alert endpoints - Phase 4.
 
 Implements:
-  GET  /api/alerts                        List (paginated, filterable) — zone-scoped
+  GET  /api/alerts                        List (paginated, filterable) - zone-scoped
   GET  /api/alerts/{alert_id}              Detail
   GET  /api/alerts/{alert_id}/frames/{position}   Raw frame image
   GET  /api/alerts/{alert_id}/labeled      Labeled frame image (developer mode only)
-  GET  /api/alerts/{alert_id}/export       ?format=pdf|csv — download a report
+  GET  /api/alerts/{alert_id}/export       ?format=pdf|csv - download a report
 
 Zone-scoping: a role with a non-empty zone_ids restriction (Phase 6) only
-sees alerts from cameras in those zones — see app.services.alert_service for
+sees alerts from cameras in those zones - see app.services.alert_service for
 the exact rule (camera-less alerts are hidden from restricted roles).
 
-For real-time updates see GET (WebSocket) /api/ws/alerts in ws.py — this
+For real-time updates see GET (WebSocket) /api/ws/alerts in ws.py - this
 router only covers the request/response REST surface.
 
 Business logic lives in app.services.alert_service.
@@ -35,7 +35,7 @@ def _parse_date(d: Optional[str]) -> Optional[datetime]:
     try:
         return datetime.fromisoformat(d)
     except ValueError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid date '{d}' — expected ISO 8601.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid date '{d}' - expected ISO 8601.")
 
 
 @router.get("", response_model=AlertsResponse)

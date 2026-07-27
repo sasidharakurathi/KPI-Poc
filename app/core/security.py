@@ -8,7 +8,7 @@ import secrets
 
 import bcrypt
 
-from app.auth.jwt_utils import (  # re-export
+from app.auth.jwt_utils import (
     InvalidTokenError,
     JWTNotConfigured,
     create_access_token,
@@ -40,5 +40,5 @@ def generate_secure_token(nbytes: int = 32) -> str:
 
 
 def hash_token(raw: str) -> str:
-    """SHA-256 fingerprint of a raw token — stored in DB instead of the raw value."""
+    """SHA-256 fingerprint of a raw token - stored in DB instead of the raw value."""
     return hashlib.sha256(raw.encode()).hexdigest()

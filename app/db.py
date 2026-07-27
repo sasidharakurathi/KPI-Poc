@@ -32,7 +32,7 @@ class Job(SQLModel, table=True):
 
 
 class Alert(SQLModel, table=True):
-    __tablename__ = "alerts"  # type: ignore[assignment]
+    __tablename__ = "alerts"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     job_id: str = Field(foreign_key="jobs.job_id", index=True)
@@ -48,7 +48,7 @@ class Alert(SQLModel, table=True):
 
 
 class AlertFrame(SQLModel, table=True):
-    __tablename__ = "alert_frames"  # type: ignore[assignment]
+    __tablename__ = "alert_frames"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     alert_id: int = Field(foreign_key="alerts.id", index=True)
@@ -61,7 +61,7 @@ class AlertFrame(SQLModel, table=True):
 
 
 class Camera(SQLModel, table=True):
-    __tablename__ = "cameras"  # type: ignore[assignment]
+    __tablename__ = "cameras"
 
     camera_id: str = Field(primary_key=True)
     name: str
@@ -69,7 +69,6 @@ class Camera(SQLModel, table=True):
     priority: str = "medium"
     kpi_ids: list = Field(default_factory=list, sa_column=Column(_JSON))
 
-    # stream_password is stored encrypted (see email_crypto.encrypt_secret/decrypt_secret)
     camera_ip: Optional[str] = None
     rtsp_port: int = 554
     stream_username: Optional[str] = None
@@ -82,11 +81,11 @@ class Camera(SQLModel, table=True):
 
 
 class Configuration(SQLModel, table=True):
-    """Generic (name, value) settings store. `value` is a JSON-encoded string —
+    """Generic (name, value) settings store. `value` is a JSON-encoded string -
     see get_config()/set_config(). One row per named config group, e.g.
     name="email" holds the whole SMTP config object, name="timezone" holds
     the default display timezone."""
-    __tablename__ = "configurations"  # type: ignore[assignment]
+    __tablename__ = "configurations"
 
     name: str = Field(primary_key=True)
     value: str = ""
@@ -95,7 +94,7 @@ class Configuration(SQLModel, table=True):
 
 class EmailLog(SQLModel, table=True):
     """One row per attempted alert-notification email (sent or failed)."""
-    __tablename__ = "email_logs"  # type: ignore[assignment]
+    __tablename__ = "email_logs"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     alert_id: Optional[int] = Field(default=None, index=True)
@@ -105,7 +104,7 @@ class EmailLog(SQLModel, table=True):
     camera_name: Optional[str] = None
     subject: str = ""
     recipients: list = Field(default_factory=list, sa_column=Column(_JSON))
-    status: str = Field(default="sent", index=True)   # "sent" | "failed"
+    status: str = Field(default="sent", index=True)
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
@@ -181,7 +180,7 @@ def create_alert(
         session.add(alert)
         session.commit()
         session.refresh(alert)
-        return alert.id  # type: ignore[return-value]
+        return alert.id
 
 
 def add_alert_frames(
@@ -273,7 +272,7 @@ def seed_cameras(cameras: dict[str, dict]) -> None:
 
 def list_cameras() -> list[Camera]:
     with get_session() as session:
-        return list(session.exec(select(Camera).order_by(Camera.camera_id)).all())  # type: ignore[arg-type]
+        return list(session.exec(select(Camera).order_by(Camera.camera_id)).all())
 
 
 def get_camera(camera_id: str) -> Optional[Camera]:
@@ -376,7 +375,7 @@ def get_config(name: str) -> Optional[dict]:
         try:
             return json.loads(row.value)
         except (json.JSONDecodeError, TypeError):
-            logger.warning("[config] '%s' has invalid JSON — ignoring", name)
+            logger.warning("[config] '%s' has invalid JSON - ignoring", name)
             return None
 
 
@@ -426,7 +425,7 @@ def create_email_log(
         session.add(log)
         session.commit()
         session.refresh(log)
-        return log.id  # type: ignore[return-value]
+        return log.id
 
 
 _EMAIL_LOG_SORT_COLUMNS: dict[str, Any] = {

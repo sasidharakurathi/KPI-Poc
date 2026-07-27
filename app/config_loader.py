@@ -83,8 +83,6 @@ def resolve_kpi_names(kpi_ids: list[int]) -> list[str]:
 
 
 # ── Camera seed data ─────────────────────────────────────────────────────────
-# Cameras themselves live in the DB (see app/db.py Camera table); this dict is
-# only used once, at startup, to seed that table if it's empty.
 
 def get_cameras() -> dict[str, dict]:
     _ensure_loaded()

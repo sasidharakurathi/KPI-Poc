@@ -1,11 +1,11 @@
 """Seeds a KPIConfiguration catalog row for every registered detector
-(app.kpis.registry) — one global row per KPI, shared across every
+(app.kpis.registry) - one global row per KPI, shared across every
 organization on this deployment (see app.db.models.kpi_configuration
 .KPIConfiguration's docstring; there's a single real detection pipeline
 behind each KPI regardless of tenant count).
 
 Without this, GET /api/kpis/catalog is empty until someone manually PUTs
-each of the 11 registered detectors one at a time — this does that in bulk,
+each of the 11 registered detectors one at a time - this does that in bulk,
 using each detector's live config.json block as the starting `parameters`
 value so the DB row matches what the pipeline is actually running today.
 
@@ -32,7 +32,7 @@ from app.db.engine import get_engine
 from app.db.models.kpi_configuration import KPIConfiguration
 from app.kpis import get_registry
 
-# Sensible defaults for the 11 KPIs currently registered — category must be
+# Sensible defaults for the 11 KPIs currently registered - category must be
 # one of KPI_CATEGORIES (app.schemas.kpi). Anything registered later that
 # isn't listed here falls back to ("operations", "") rather than failing.
 _METADATA: dict[str, tuple[str, str]] = {
@@ -100,7 +100,7 @@ def main() -> None:
         if not args.dry_run:
             session.commit()
 
-        mode = "DRY RUN — " if args.dry_run else ""
+        mode = "DRY RUN - " if args.dry_run else ""
         print(f"\n{mode}{created} created, {refreshed} refreshed, {skipped} already present.")
 
 

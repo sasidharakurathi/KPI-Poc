@@ -1,15 +1,15 @@
-"""In-process real-time pub-sub for the alerts WebSocket — Phase 4.
+"""In-process real-time pub-sub for the alerts WebSocket - Phase 4.
 
-No new infrastructure (no Redis/broker) — a single-process asyncio connection
+No new infrastructure (no Redis/broker) - a single-process asyncio connection
 registry is sufficient for this deployment shape (one backend process serving
 every organization on the deployment; every connection/broadcast is tagged
-with an org_id so events never cross tenant boundaries — see _Connection
+with an org_id so events never cross tenant boundaries - see _Connection
 .can_see below).
 
 Two call surfaces:
-  - `broadcast()` (async) — call from code already running on the main event
+  - `broadcast()` (async) - call from code already running on the main event
     loop (e.g. the WebSocket endpoint itself, or an async background task).
-  - `broadcast_threadsafe()` (sync) — call from a background thread that is
+  - `broadcast_threadsafe()` (sync) - call from a background thread that is
     NOT on the main event loop, e.g. the synchronous video-detection pipeline
     (app.kpis.base._flush -> app.db.create_alert). Schedules the same
     broadcast onto the main loop via asyncio.run_coroutine_threadsafe instead
@@ -26,7 +26,7 @@ class _Connection:
     """One live WebSocket connection plus the org it authenticated as and
     the zone restriction it was authenticated with at connect time
     (allowed_camera_ids=None = unrestricted *within that org*, not
-    unrestricted across every org — see can_see)."""
+    unrestricted across every org - see can_see)."""
 
     __slots__ = ("websocket", "org_id", "allowed_camera_ids")
 
@@ -36,13 +36,13 @@ class _Connection:
         self.allowed_camera_ids = allowed_camera_ids
 
     def can_see(self, camera_id: Optional[str], org_id: Optional[int]) -> bool:
-        """org_id must match first — this is the real tenant boundary. A
+        """org_id must match first - this is the real tenant boundary. A
         connection with no resolvable org (shouldn't normally happen; every
         authenticated user belongs to one) never sees anything rather than
         failing open. Within the same org: an unrestricted (zone-wise)
         connection sees every event, including camera-less ones; a
         zone-restricted one only sees events tied to a camera in its allowed
-        set — a camera-less event (e.g. an alert from an ad-hoc video upload
+        set - a camera-less event (e.g. an alert from an ad-hoc video upload
         with no registered camera) is invisible to it, matching the same
         "hide camera-less alerts from zone-restricted roles" rule applied to
         the REST endpoints."""
@@ -60,7 +60,7 @@ class AlertsWebSocketManager:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Called once at app startup, from the main event loop — lets
+        """Called once at app startup, from the main event loop - lets
         broadcast_threadsafe() schedule work onto it safely from any other
         thread."""
         self._loop = loop
@@ -81,7 +81,7 @@ class AlertsWebSocketManager:
     ) -> None:
         """Sends {"event": event_type, "data": payload} to every connection
         in the same org whose zone restriction allows it to see this
-        camera_id. org_id identifies which org this event belongs to — a
+        camera_id. org_id identifies which org this event belongs to - a
         camera-less event with no resolvable org (shouldn't normally happen)
         reaches no one rather than broadcasting to every org."""
         message = {"event": event_type, "data": payload}
@@ -103,7 +103,7 @@ class AlertsWebSocketManager:
         """Safe to call from any thread, including the synchronous video
         pipeline's worker thread. Best-effort: if the websocket layer hasn't
         started (e.g. a script importing app.db outside the running FastAPI
-        app), this is a silent no-op rather than an error — broadcasting is
+        app), this is a silent no-op rather than an error - broadcasting is
         never allowed to break the actual alert-creation path."""
         if self._loop is None:
             return

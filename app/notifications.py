@@ -1,11 +1,11 @@
-"""KPI detection alert emails — reads SMTP config from the legacy
+"""KPI detection alert emails - reads SMTP config from the legacy
 Configuration table (key "email", managed via /api/settings/email), which is
 tied to the video pipeline and out of scope for this PRD phase (see PRD
 Cross-Cutting Notes: "the existing GPU/CPU-flexible inference pipeline is
 unaffected by this phase").
 
 This is a SEPARATE system from account/transactional email (activation,
-password reset, user onboarding) — those all go through
+password reset, user onboarding) - those all go through
 app.services.email_service, backed by the EmailServer table instead. Do not
 add new callers here for anything account-related.
 """
@@ -67,7 +67,7 @@ _DEFAULT_COLOR = "#1A237E"
 
 
 def get_email_config() -> dict[str, Any]:
-    """Stored config merged over defaults — always returns a complete dict."""
+    """Stored config merged over defaults - always returns a complete dict."""
     stored = db.get_config("email") or {}
     return {**_DEFAULTS, **stored}
 
@@ -273,7 +273,7 @@ def notify_alert(
     label     = _humanize(alert_type)
     cam_label = camera_name or "Unknown Camera"
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    subject   = f"[Vision AI] {label} — {cam_label}"
+    subject   = f"[Vision AI] {label} - {cam_label}"
 
     plain = _build_plain(display_name, alert_type, camera_name, job_id, alert_id, timestamp)
     html  = _build_html(display_name, alert_type, camera_name, job_id, alert_id, timestamp,
@@ -301,7 +301,7 @@ def notify_alert(
 
 
 def send_test_email(cfg: Optional[dict] = None) -> None:
-    """Synchronous send used by the admin UI's test button — raises on failure."""
+    """Synchronous send used by the admin UI's test button - raises on failure."""
     cfg       = cfg or get_email_config()
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     subject   = "[Vision AI] Test email"

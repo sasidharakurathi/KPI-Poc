@@ -1,14 +1,14 @@
-"""Real-time alerts WebSocket — Phase 4.
+"""Real-time alerts WebSocket - Phase 4.
 
 Implements:
   WS /api/ws/alerts?token=<access_token>
 
 Browsers can't set an Authorization header on a WebSocket handshake, so the
-access token travels as a query parameter instead — validated the same way
+access token travels as a query parameter instead - validated the same way
 require_auth validates it for REST (decode + DB status/token_version check),
 plus the equivalent of require_permission("alerts", "view") against the
 caller's role. A connection only ever receives its own organization's
-events (see app.services.ws_manager._Connection.can_see) — matching the org
+events (see app.services.ws_manager._Connection.can_see) - matching the org
 filter every REST Alerts/Dashboard endpoint applies. Zone-scoping on top of
 that matches the REST endpoints exactly: a role with a non-empty zone_ids
 restriction only receives events for cameras in those zones within its own
@@ -20,7 +20,7 @@ Event contract (for the frontend team):
   {"event": "camera.offline", "data": {"camera_id": str, "camera_name": str, "connectivity_status": "inactive"}}
   {"event": "camera.online",  "data": {"camera_id": str, "camera_name": str, "connectivity_status": "active"}}
 
-This is a push-only channel — the server never expects the client to send
+This is a push-only channel - the server never expects the client to send
 anything meaningful. The connection is closed with code 1008 (policy
 violation) if the token is missing, invalid, expired, revoked, or belongs to
 a role without alerts.view permission.
@@ -80,8 +80,6 @@ async def alerts_websocket(websocket: WebSocket, token: str):
     conn = await ws_manager.connect(websocket, user.org_id, allowed_camera_ids)
     try:
         while True:
-            # Push-only — nothing meaningful is expected from the client.
-            # Just block here so a disconnect is noticed promptly.
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass

@@ -1,4 +1,4 @@
-"""User management endpoints — Phase 7.
+"""User management endpoints - Phase 7.
 
 Implements (paths/shapes match vision-ai-frontend/src/api/users.ts exactly):
   GET    /api/users                 List (plain array, excludes soft-deleted)
@@ -7,14 +7,14 @@ Implements (paths/shapes match vision-ai-frontend/src/api/users.ts exactly):
   POST   /api/users                 Create; sends onboarding email to the new
                                      user + a confirmation to active admins
   PUT    /api/users/{user_id}       Edit full_name, email, phone, role_id
-  PATCH  /api/users/{user_id}/status   {status: "active"|"inactive"} — NOT
+  PATCH  /api/users/{user_id}/status   {status: "active"|"inactive"} - NOT
                                      "/disable" as an earlier stub assumed
   DELETE /api/users/{user_id}       Soft-delete (hidden from lists, history
                                      retained, status="deleted")
   POST   /api/users/{user_id}/reset-password   {new_password}
 
 Disabling, deleting, or resetting a user's password all immediately kill
-their live sessions via auth_service.revoke_all_sessions() — not just future
+their live sessions via auth_service.revoke_all_sessions() - not just future
 logins (see app/services/user_service.py).
 
 Business logic lives in app.services.user_service.

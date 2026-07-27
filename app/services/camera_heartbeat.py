@@ -1,13 +1,13 @@
-"""Camera-offline heartbeat monitor — Phase 4.
+"""Camera-offline heartbeat monitor - Phase 4.
 
 Periodically compares each recording-enabled camera's live stream status
 (app.stream_recorder.stream_recorder_manager) against its last-known
 Camera.connectivity_status, persists any transition, and on Active->Inactive
-creates a "Camera Offline" Alert (job_id=None — there's no video-processing
+creates a "Camera Offline" Alert (job_id=None - there's no video-processing
 job behind a connectivity signal) plus broadcasts camera.offline /
 camera.online events over the realtime websocket.
 
-Audit-log wiring is deliberately not included here — it depends on Phase 8's
+Audit-log wiring is deliberately not included here - it depends on Phase 8's
 audit_service, which doesn't exist yet.
 
 `_check_once()` is a plain synchronous function (all it does is DB reads/
@@ -30,10 +30,6 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SECONDS = 30
 
-# ClipRecorder.status ("starting"|"connected"|"reconnecting"|"stopped") ->
-# Camera.connectivity_status ("active"|"inactive"|"pending"). A recorder with
-# no entry at all (recording disabled, or camera_ip unset) means "disabled",
-# which is not monitored here at all — see the recording_enabled filter below.
 _STATUS_MAP: dict[str, str] = {
     "connected": "active",
     "starting": "pending",
@@ -45,7 +41,7 @@ _STATUS_MAP: dict[str, str] = {
 def _check_once() -> None:
     with Session(get_engine()) as session:
         cameras = session.exec(
-            select(Camera).where(Camera.recording_enabled == True)  # noqa: E712
+            select(Camera).where(Camera.recording_enabled == True)
         ).all()
 
         for cam in cameras:
@@ -82,10 +78,6 @@ def _check_once() -> None:
                 logger.warning("[camera_heartbeat] %s", message)
 
             elif previous == "inactive" and new_status == "active":
-                # Recovery signal — no Alert row (the plan only calls for one
-                # on going offline), just lets connected clients clear any
-                # "offline" indicator they're showing for this camera. Not
-                # fired for the normal pending->active startup transition.
                 ws_manager.broadcast_threadsafe(
                     "camera.online",
                     {"camera_id": cam.camera_id, "camera_name": cam.name, "connectivity_status": new_status},

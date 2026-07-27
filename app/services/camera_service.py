@@ -4,7 +4,7 @@ Kept out of app/api/v1/endpoints/cameras.py so the router stays a thin
 request/response layer, matching the Phase 0/6/7 service-layer pattern.
 
 Scope note: kpi_ids stays the existing numeric list that the real detection
-pipeline reads directly (app.kpis.registry) — the frontend's string-keyed
+pipeline reads directly (app.kpis.registry) - the frontend's string-keyed
 kpi_model_ids references Phase 3's KPI Management capability table, which
 doesn't exist yet. Bulk endpoints, the camera-offline heartbeat monitor, and
 audit-log wiring are deferred to when Phases 3/4/8 land.
@@ -80,7 +80,7 @@ def _resolve_priority_or_422(db: Session, org_id: Optional[int], raw: str) -> Pr
 
 
 def _resolve_kpi_model_ids_or_422(raw: list[str]) -> list[str]:
-    """kpi_model_ids reference Phase 3's KPI Management capability keys —
+    """kpi_model_ids reference Phase 3's KPI Management capability keys -
     gated to real registered detectors (app.kpis.registry), same as the
     catalog itself (app.api.v1.endpoints.kpis)."""
     known = set(list_registered_names())
@@ -110,7 +110,7 @@ def _kpi_details(kpi_ids: list[int]) -> list[CameraKPIDetail]:
 
 def _alerts_by_year(db: Session, camera_id: str) -> dict[str, int]:
     """This camera's own alert history, summed across every KPI and grouped
-    by calendar year — e.g. {"2025": 12, "2026": 45}. Same year-bucketing
+    by calendar year - e.g. {"2025": 12, "2026": 45}. Same year-bucketing
     approach as app.services.dashboard_service.get_alert_chart's day
     buckets, just for one camera's full history instead of a date range."""
     alerts = db.exec(select(Alert).where(Alert.camera_id == camera_id)).all()

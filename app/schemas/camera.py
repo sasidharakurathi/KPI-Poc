@@ -1,4 +1,4 @@
-"""Camera schemas — Phase 2.
+"""Camera schemas - Phase 2.
 
 Field names/shape match the frontend's real contract (`vision-ai-frontend/
 src/types/domain.ts` CameraRecord/CameraCreateInput/CameraUpdateInput,
@@ -8,10 +8,10 @@ exists. Notably:
     FKs into zones/priorities; app.services.camera_service converts at the
     boundary), matching the project's established id convention.
   - status is "active" | "inactive", mapped from the backend's own
-    Camera.enabled boolean toggle — distinct from Camera.connectivity_status,
+    Camera.enabled boolean toggle - distinct from Camera.connectivity_status,
     which is a live health signal, not something a client sets directly.
   - kpi_ids stays the existing numeric list (feeds the real detection
-    pipeline via app.kpis.registry) — kpi_model_ids (string-keyed, Phase 3's
+    pipeline via app.kpis.registry) - kpi_model_ids (string-keyed, Phase 3's
     KPI Management capability keys) is a separate, additive field validated
     against the real registered-detector list.
   - zone_name/priority_name/priority_color/priority_level are server-side
@@ -106,7 +106,7 @@ class CameraResponse(BaseModel):
     stream_status: str = "disabled"
     stream_error: Optional[str] = None
     created_at: str
-    alerts_by_year: dict[str, int] = Field(default_factory=dict)  # {"2025": 12, "2026": 45, ...} — this camera's own alerts, every KPI combined
+    alerts_by_year: dict[str, int] = Field(default_factory=dict)  # {"2025": 12, "2026": 45, ...} - this camera's own alerts, every KPI combined
 
 
 class CameraListItem(BaseModel):

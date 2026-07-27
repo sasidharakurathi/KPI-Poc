@@ -2,7 +2,7 @@
 
 get_db: yields a SQLModel Session (use with Depends).
 get_current_user: reads the JWT payload attached by JWTAuthMiddleware, if any
-  — signature/expiry-valid only, no DB check (cheap, used where "is there any
+  - signature/expiry-valid only, no DB check (cheap, used where "is there any
   token at all" is enough, e.g. OptionalUser).
 require_auth: 401s unless a valid Bearer token was presented AND the account
   is still active AND the token hasn't been revoked (see token_version below).
@@ -40,7 +40,7 @@ def require_auth(request: Request, db: DbSession) -> dict:
 
     That second check is what makes logout/password-reset/future disable-
     delete take effect immediately instead of waiting out the access token's
-    natural expiry — see app.services.auth_service.revoke_all_sessions().
+    natural expiry - see app.services.auth_service.revoke_all_sessions().
     This costs one extra DB lookup per authenticated request, a deliberate
     tradeoff for real revocation over a purely stateless JWT.
     """
@@ -76,7 +76,7 @@ def require_permission(module: str, action: str):
     """Dependency factory: requires auth AND that the caller's role grants
     `action` on `module`. Every PRD management endpoint from Phase 0 onward
     should be gated with this, per "every permission rule is enforced twice
-    — hidden in the UI, and rejected again on the server" (PRD Cross-Cutting
+    - hidden in the UI, and rejected again on the server" (PRD Cross-Cutting
     Notes)."""
 
     def _dependency(request: Request, db: DbSession) -> dict:

@@ -1,4 +1,4 @@
-"""Camera management endpoints — Phase 2.
+"""Camera management endpoints - Phase 2.
 
 Implements:
   GET    /api/cameras                List cameras for the caller's org, enriched
@@ -10,11 +10,11 @@ Implements:
   DELETE /api/cameras/{camera_id}    Delete
 
 org_id is always derived from the authenticated caller (require_permission),
-never from the request body — same convention as every other Configuration
+never from the request body - same convention as every other Configuration
 module. zone_id/priority_id are validated against the caller's own org.
 
 kpi_ids stays the existing numeric list feeding the real detection pipeline
-(app.kpis.registry) — the frontend's string-keyed kpi_model_ids belongs to
+(app.kpis.registry) - the frontend's string-keyed kpi_model_ids belongs to
 Phase 3's KPI Management capability table, which doesn't exist yet.
 
 Business logic lives in app.services.camera_service.

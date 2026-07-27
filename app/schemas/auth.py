@@ -1,4 +1,4 @@
-"""Auth schemas — Phase 0.
+"""Auth schemas - Phase 0.
 
 Covers org registration/activation, sign-in, token refresh, "me", and
 password reset/change. Field names follow the PRD's own field tables

@@ -1,6 +1,6 @@
-"""Role & permissions endpoints — Phase 6.
+"""Role & permissions endpoints - Phase 6.
 
-Implements (paths/shapes match vision-ai-frontend/src/api/roles.ts exactly —
+Implements (paths/shapes match vision-ai-frontend/src/api/roles.ts exactly -
 plain arrays, not {count, roles} wrappers):
   GET    /api/roles                List (plain array)
   GET    /api/roles/user-counts    {role_id: active-user-count}, registered

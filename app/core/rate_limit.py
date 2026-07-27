@@ -1,6 +1,6 @@
 """In-process sliding-window rate limiter.
 
-No external infra (Redis/etc.) — adequate for a single-process deployment,
+No external infra (Redis/etc.) - adequate for a single-process deployment,
 which is what this app runs as today. If this is ever scaled to multiple
 worker processes, move this state to a shared store (redis is already an
 unused dependency sitting in the venv).
@@ -28,13 +28,11 @@ class SlidingWindowLimiter:
             return len(dq)
 
     def reset(self) -> None:
-        """Clear all recorded hits — used by tests, which otherwise share this
+        """Clear all recorded hits - used by tests, which otherwise share this
         process-global state across test cases."""
         with self._lock:
             self._hits.clear()
 
 
-# Shared limiters for Phase 0 auth endpoints (PRD §2.3: rate-limited per IP
-# and per username on login and password-reset).
 login_limiter = SlidingWindowLimiter()
 password_reset_limiter = SlidingWindowLimiter()

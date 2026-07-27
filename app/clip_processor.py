@@ -11,7 +11,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Queue depth at/above this logs a warning that processing is falling behind the live recording rate.
 _BACKLOG_WARNING_THRESHOLD = 3
 
 
@@ -47,7 +46,7 @@ class ClipProcessor:
         logger.info(f"[clip-processor] queued {clip_path} (camera {camera_id}, queue depth {depth})")
         if depth >= _BACKLOG_WARNING_THRESHOLD:
             logger.warning(
-                f"[clip-processor] {depth} clip(s) now waiting to be processed — "
+                f"[clip-processor] {depth} clip(s) now waiting to be processed - "
                 f"falling behind the live recording rate."
             )
 
@@ -60,9 +59,8 @@ class ClipProcessor:
             try:
                 self._process(job)
             except Exception:
-                # One bad clip must never stop every clip queued behind it from being processed.
                 logger.exception(
-                    f"[clip-processor] unexpected error processing {job.clip_path} — "
+                    f"[clip-processor] unexpected error processing {job.clip_path} - "
                     f"discarding this clip and continuing with the next one"
                 )
                 try:
@@ -107,7 +105,7 @@ class ClipProcessor:
             utilization = wall_time / job.duration_sec if job.duration_sec > 0 else 0.0
             logger.info(
                 f"[clip-processor] {Path(job.clip_path).name} (camera {job.camera_id}) "
-                f"— all {len(kpis_running)} KPI(s) done in {wall_time:.2f}s "
+                f"- all {len(kpis_running)} KPI(s) done in {wall_time:.2f}s "
                 f"(clip duration {job.duration_sec:.1f}s, {utilization:.2f}x real-time)"
             )
             try:

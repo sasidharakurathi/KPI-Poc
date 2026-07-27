@@ -1,4 +1,4 @@
-"""Audit log endpoints — Phase 8.
+"""Audit log endpoints - Phase 8.
 
 Implements:
   GET /api/audit   Read-only log with filters: entity, action, actor, date range
@@ -9,7 +9,7 @@ called from every Camera/Role/User create/update/delete/enable/disable
 EmailServers/KpiModelCatalog (Phase 1) are deliberately not audited, matching
 the frontend's own audit-log scope.
 
-No zone-scoping — require_permission("audit_log", "view") is the only gate
+No zone-scoping - require_permission("audit_log", "view") is the only gate
 (see app.services.audit_service's module docstring for why).
 
 Models used: AuditLog (app.db.models.audit)
@@ -32,7 +32,7 @@ def _parse_date(d: Optional[str]) -> Optional[datetime]:
     try:
         return datetime.fromisoformat(d)
     except ValueError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid date '{d}' — expected ISO 8601.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid date '{d}' - expected ISO 8601.")
 
 
 @router.get("", response_model=AuditLogListResponse)

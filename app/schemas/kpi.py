@@ -31,7 +31,7 @@ KPI_CATEGORIES = ("safety", "compliance", "operations", "security")
 class KpiCatalogUpdate(BaseModel):
     """Field names/values match the frontend's real contract exactly
     (vision-ai-frontend/src/api/kpiModels.ts KpiModelInput + the
-    setEnabled/updateConfig/updateModels mutations) — model_ids references
+    setEnabled/updateConfig/updateModels mutations) - model_ids references
     Phase 1's KpiModelCatalog (Configuration > KPI Models), not this
     catalog's own rows and not the code-level detector registry."""
     model_ids: Optional[list[str]] = None
@@ -57,8 +57,8 @@ class KpiCatalogUpdate(BaseModel):
 class KpiCatalogResponse(BaseModel):
     """Matches the frontend's KpiModelDef exactly. display_name is resolved
     live from the real detector registry (app.kpis.registry) rather than
-    stored — kpi_name is gated to a real registered detector at write time,
-    so this is always resolvable — matching the "resolve live, don't
+    stored - kpi_name is gated to a real registered detector at write time,
+    so this is always resolvable - matching the "resolve live, don't
     snapshot" pattern already used for zone_name/priority_name elsewhere."""
     id: str
     key: str

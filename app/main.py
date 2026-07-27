@@ -105,10 +105,5 @@ app.add_middleware(
 
 app.include_router(api_router)
 
-# Organization logos are non-sensitive brand assets — served as plain static
-# files (no auth) rather than through an authenticated endpoint, since a
-# login page needs to render an org's logo before anyone has signed in.
-# StaticFiles checks the directory exists at mount time, which happens at
-# import — before lifespan()'s mkdir has run — so it's created eagerly here.
 settings.LOGOS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/media/logos", StaticFiles(directory=settings.LOGOS_DIR), name="logos")

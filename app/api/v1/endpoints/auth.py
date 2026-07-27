@@ -1,7 +1,7 @@
-"""Authentication endpoints — Phase 0.
+"""Authentication endpoints - Phase 0.
 
 Implements:
-  POST /api/auth/register          Organization sign-up (multi-tenant — any number of orgs may register)
+  POST /api/auth/register          Organization sign-up (multi-tenant - any number of orgs may register)
   POST /api/auth/activate          Consume the activation token (JSON)
   GET  /api/auth/activate          Same, for clicking the emailed link directly
   POST /api/auth/login             Username + password -> access + refresh tokens
@@ -46,7 +46,7 @@ def register(payload: OrgRegisterRequest, db: DbSession) -> RegisterResponse:
         "Organization created. Check the owner's email for an activation link."
         if email_sent else
         "Organization created, but no default email server is configured for this "
-        "deployment — the activation link could not be emailed. Add a default email "
+        "deployment - the activation link could not be emailed. Add a default email "
         "server under Configuration, or fetch the activation token directly."
     )
     return RegisterResponse(
@@ -65,7 +65,7 @@ def activate(payload: ActivateRequest, db: DbSession) -> dict:
 
 @router.get("/activate", response_class=HTMLResponse)
 def activate_via_link(token: str, db: DbSession) -> HTMLResponse:
-    """Convenience endpoint for the emailed activation link — no frontend page
+    """Convenience endpoint for the emailed activation link - no frontend page
     exists to consume this yet, so it renders a minimal confirmation itself."""
     try:
         auth_service.activate_account(db, token)
@@ -131,7 +131,7 @@ def reset_password(payload: PasswordResetConfirm, db: DbSession) -> dict:
 
 @router.get("/reset-password", response_class=HTMLResponse)
 def reset_password_form(token: str) -> HTMLResponse:
-    """Convenience page for the emailed reset link — no frontend page exists
+    """Convenience page for the emailed reset link - no frontend page exists
     to consume this yet, so it renders a minimal form itself. `token` is
     escaped before being echoed into the page (it's attacker-reachable via
     the query string, unlike the tokens we generate ourselves)."""

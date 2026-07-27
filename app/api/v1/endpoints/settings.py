@@ -1,7 +1,7 @@
 """Legacy config-file/Configuration-table settings.
 
 GET/PUT /api/settings/email configures SMTP for KPI detection alert emails
-only (app.notifications) — a separate system from account/transactional
+only (app.notifications) - a separate system from account/transactional
 email (activation, password reset, user onboarding), which is configured via
 the EmailServer table (Configuration > Email Servers,
 app.api.v1.endpoints.email_servers) instead. See app/notifications.py's
@@ -87,7 +87,7 @@ async def test_email_settings():
     if not cfg["smtp_host"] or not cfg["recipients"]:
         raise HTTPException(
             status_code=400,
-            detail="Email settings are incomplete — set SMTP host and at least one recipient first.",
+            detail="Email settings are incomplete - set SMTP host and at least one recipient first.",
         )
     try:
         notifications.send_test_email(cfg)

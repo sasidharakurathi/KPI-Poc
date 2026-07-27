@@ -58,25 +58,6 @@ async def update_kpi_settings(name: str, updates: Annotated[dict[str, Any], Body
         config=new_cfg,
     )
 
-# ── KPI Catalog (Phase 3) ─────────────────────────────────────────────────────
-#
-# kpi_name/key is gated to real registered detectors (app.kpis.registry) —
-# matching the PRD's stated intent ("backend-seeded", not arbitrary
-# admin-created capabilities like the frontend mock's more permissive
-# create flow allows). This also keeps every catalog entry able to write
-# through to config.json, which is what the real detection pipeline reads —
-# an entry with no real detector behind it would have nothing to write to.
-#
-# One row per KPI, shared across every organization (not org-scoped — see
-# app.db.models.kpi_configuration.KPIConfiguration's docstring): there's a
-# single real detection pipeline behind each KPI regardless of tenant count.
-#
-# config (parameters) and enabled changes write through to config.json via
-# app.config_loader.update_kpi_config(), so changes here actually affect the
-# next detection run. model_ids does NOT write through — config.json holds a
-# single model_path per KPI, and there's no sound way to collapse a list of
-# model_ids onto that single value.
-
 def _registered_class_or_404(name: str):
     cls = get_registry().get(name)
     if not cls:
@@ -167,11 +148,6 @@ async def update_kpi_catalog(
     session.refresh(config)
 
     if payload.config is not None:
-        # Write-through: config.json is what the real pipeline reads. Not
-        # swallowed on failure — unlike audit logging, this is the primary
-        # mechanism by which this endpoint actually controls detection, so a
-        # failure here should surface as a real error rather than silently
-        # leaving the DB and the pipeline disagreeing.
         update_kpi_config(cls.__name__, payload.config)
 
     return _to_catalog_response(config)

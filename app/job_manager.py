@@ -12,7 +12,6 @@ class _JobProxy:
     def __init__(self, row: Job) -> None:
         self._row = row
 
-    # expose all columns as attributes
     def __getattr__(self, name: str) -> Any:
         return getattr(self._row, name)
 

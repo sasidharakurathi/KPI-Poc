@@ -1,7 +1,7 @@
 import logging
 import os
 
-import ultralytics  # noqa: F401
+import ultralytics
 logging.getLogger("ultralytics").setLevel(logging.ERROR)
 
 

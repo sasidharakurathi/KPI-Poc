@@ -1,7 +1,7 @@
 """Phase 1 (Configuration: Priorities, Zones, Email Servers, KPI Models) tests.
 
 Focused on the bugs found in the kpi-poc-v2 integration audit: missing auth,
-client-controlled org_id, and org-unscoped queries — see
+client-controlled org_id, and org-unscoped queries - see
 docs/IMPLEMENTATION_PLAN.md for the full incident writeup. CRUD happy-path
 coverage is intentionally light since that part already worked.
 """
@@ -34,7 +34,7 @@ def _login_as_limited_user(client, db_session, org_id, role_id, username="limite
 
 def _second_org_headers(client, db_session) -> dict:
     """Registers a second, independent organization and returns Bearer
-    headers for its Owner — used to prove config rows are unique per-org,
+    headers for its Owner - used to prove config rows are unique per-org,
     not globally (see app/db/migrations.py's _migrate_multi_org_unique_constraints)."""
     from .conftest import VALID_REGISTER_PAYLOAD, register_activate_login
 
@@ -99,7 +99,7 @@ def test_priority_duplicate_name_within_org_409(client, owner):
 
 def test_priority_same_name_across_orgs_allowed(client, owner, db_session):
     """Multi-tenant: two different organizations must each be free to use
-    the same priority name — this used to be a global DB-level unique
+    the same priority name - this used to be a global DB-level unique
     constraint that would 409 the second org even though the app-level
     duplicate check is (correctly) scoped to org_id."""
     other_headers = _second_org_headers(client, db_session)
@@ -264,7 +264,7 @@ def test_kpi_models_require_auth(client):
 
 def test_create_kpi_model_ignores_client_supplied_org_id(client, owner):
     """The KPI Models catalog is global (shared across every org, not
-    org-scoped — see app.db.models.domain_config.KpiModelCatalog's
+    org-scoped - see app.db.models.domain_config.KpiModelCatalog's
     docstring), so a client-supplied org_id in the body is simply ignored:
     not stored, not echoed back."""
     resp = client.post(
@@ -287,7 +287,7 @@ def test_kpi_models_list_includes_disabled_rows(client, owner):
 
 def test_kpi_model_same_name_across_orgs_rejected(client, owner, db_session):
     """Unlike Priority/EmailServer (org-scoped), the KPI Models catalog is
-    global — a second org creating a model with the same name must 409, not
+    global - a second org creating a model with the same name must 409, not
     silently succeed as a separate per-org row."""
     other_headers = _second_org_headers(client, db_session)
     body = {"name": "fire_smoke_v2", "model_path": "/models/fire.pt"}
@@ -301,7 +301,7 @@ def test_kpi_model_same_name_across_orgs_rejected(client, owner, db_session):
 
 def test_role_name_owner_across_orgs_allowed(client, owner, db_session):
     """Every organization seeds its own role literally named "Owner" at
-    registration (app.services.auth_service.register_organization) — the
+    registration (app.services.auth_service.register_organization) - the
     second org's registration would have IntegrityError'd here if Role.name
     were still a global unique constraint instead of (org_id, name)."""
     _second_org_headers(client, db_session)  # registration succeeding at all is the assertion

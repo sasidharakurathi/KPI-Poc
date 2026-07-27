@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOGS_DIR = BASE_DIR / "logs"
 
-_NVIDIASMI_CMD: Optional[list] = None   # None = unchecked; [] = not available
+_NVIDIASMI_CMD: Optional[list] = None
 
 
 def _get_nvidiasmi() -> Optional[list]:
@@ -147,10 +147,10 @@ class _ResourceSampler:
         self._device   = device
         self._interval = interval
         self._total_ram_mb: float = psutil.virtual_memory().total / (1024 ** 2)
-        # Logical core count — used to normalise cpu_percent to 0-100 %
+        # Logical core count - used to normalise cpu_percent to 0-100 %
         self._cpu_count: int = psutil.cpu_count(logical=True) or 1
 
-        # Per-instance Process object — avoids shared-state race between parallel KPIs
+        # Per-instance Process object - avoids shared-state race between parallel KPIs
         self._proc = psutil.Process(os.getpid())
 
         self._cuda = (
@@ -453,8 +453,8 @@ class KPIMetricsCollector:
 
         model_paths = _extract_model_paths(self._kpi._cfg)
         if not model_paths:
-            # Fallback: no model_path in config — still emit one entry for the KPI
-            model_paths = [f"<unknown — {self._kpi.name}>"]
+            # Fallback: no model_path in config - still emit one entry for the KPI
+            model_paths = [f"<unknown - {self._kpi.name}>"]
 
         return [
             ModelRunLog(

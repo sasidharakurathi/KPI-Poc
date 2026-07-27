@@ -7,30 +7,22 @@ from sqlalchemy import JSON as _JSON
 
 class KPIConfiguration(SQLModel, table=True):
     """Phase 3 (KPI Management). kpi_name is gated to real registered
-    detectors (app.kpis.registry) — see app.api.v1.endpoints.kpis. Writing
+    detectors (app.kpis.registry) - see app.api.v1.endpoints.kpis. Writing
     enable_status/parameters now also writes through to config.json (see
     app.config_loader.update_kpi_config), which is what the real detection
     pipeline actually reads; assigned_models does not write through (no
     sensible 1:1 mapping to config.json's single model_path per KPI).
 
-    One row per KPI, shared across every organization on this deployment —
+    One row per KPI, shared across every organization on this deployment -
     not org-scoped. There's a single real detection pipeline behind each KPI
     regardless of tenant count, so "is fire_smoke enabled" is a deployment-
     wide fact, not a per-org one."""
     __tablename__ = "kpi_configuration"
-
-    # BigInteger with an explicit variant for SQLite: SQLite only grants its
-    # built-in autoincrementing-rowid behavior to a column declared as
-    # exactly "INTEGER PRIMARY KEY" — a BigInteger PK (as originally written)
-    # silently loses autoincrement there, though it works fine on Postgres
-    # (a real BIGINT + sequence). Only matters for the pytest SQLite DB.
     id: Optional[int] = Field(
         default=None,
         sa_column=Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True),
     )
     kpi_name: str = Field(sa_column=Column(String(255), nullable=False, unique=True))
-    # Superseded — this table is shared across every org now. Left in place,
-    # unused, per this project's additive-only migration policy.
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     description: Optional[str] = Field(default=None, sa_column=Column(String(500)))
     category: Optional[str] = Field(default=None, sa_column=Column(String(50)))

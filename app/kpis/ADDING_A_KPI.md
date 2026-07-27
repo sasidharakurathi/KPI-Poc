@@ -20,7 +20,7 @@ Add a block keyed by your **class name**:
 ```
 
 `enabled` is optional (defaults to `true`). Everything else is whatever
-parameters your detector needs — read them back with `self._get(key, default)`.
+parameters your detector needs - read them back with `self._get(key, default)`.
 
 If the KPI should be assignable to a camera, also add an entry to
 `kpi_registry` mapping a numeric catalog ID to your KPI's `name`:
@@ -130,7 +130,7 @@ from . import your_kpi
   frame is additionally saved with these boxes drawn on it
   (`labeled_frame{idx}.jpg`), for debugging.
 - **Hot-reload config**: edit `config.json` and call `POST /api/config/reload`,
-  or use `PUT /api/kpis/{name}/config` to persist changes from the admin UI —
+  or use `PUT /api/kpis/{name}/config` to persist changes from the admin UI -
   changes take effect on the next job.
 - **Disable without removing**: set `"enabled": false` in `config.json`, or
   `PUT /api/kpis/{name}/config` with `{"enabled": false}`.

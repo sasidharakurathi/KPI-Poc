@@ -22,7 +22,7 @@ from urllib.parse import urlsplit, urlunsplit
 logger = logging.getLogger(__name__)
 
 _BUF = 65536
-_MAX_HEADER_WAIT = 1 << 20   # guard against unbounded buffering on malformed input
+_MAX_HEADER_WAIT = 1 << 20
 
 
 def localize_url(original_url: str, local_host: str, local_port: int) -> str:
@@ -42,7 +42,7 @@ def _keep_only_md5_challenge(header_block: bytes) -> bytes:
     kept = []
     for line in lines:
         if line.lower().startswith(b"www-authenticate:") and b"sha-256" in line.lower():
-            continue   # drop this challenge; leave the MD5 one (or others) intact
+            continue
         kept.append(line)
     return b"\r\n".join(kept)
 

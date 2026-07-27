@@ -2,7 +2,7 @@
 
 Alerts are created directly via app.db.create_alert() (the same function the
 real detection pipeline calls) rather than through a full video-processing
-job — job_id is optional now specifically so tests (and the camera-offline
+job - job_id is optional now specifically so tests (and the camera-offline
 heartbeat monitor) don't need a real Job row.
 """
 from app.core.security import hash_password
@@ -90,7 +90,7 @@ def test_alerts_require_auth(client):
 
 # ── Cross-org isolation ──────────────────────────────────────────────────────
 # Regression coverage for the fix in app.db.create_alert/query_alerts/
-# app.services.alert_service — org_id used to only be enforced via
+# app.services.alert_service - org_id used to only be enforced via
 # zone-scoping, which is a no-op (allowed=None) for any unrestricted role,
 # including the Owner of a brand-new org that has never even seen the
 # camera whose alert it's about to view.
@@ -165,7 +165,7 @@ def test_zone_restricted_role_only_sees_its_own_zone(client, owner, db_session):
 
 def test_cameraless_alert_is_invisible_to_everyone(client, owner, db_session):
     """A truly camera-less alert (no job, no camera) has no resolvable
-    org_id either — app.db.create_alert only ever derives org_id from a
+    org_id either - app.db.create_alert only ever derives org_id from a
     camera. With no owning org, it's hidden from the org-scoped REST API
     entirely: not just zone-restricted roles (the original rule), but even
     an unrestricted role in the same deployment, and the Owner who happens

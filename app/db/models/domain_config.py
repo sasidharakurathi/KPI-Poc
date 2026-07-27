@@ -2,7 +2,7 @@
 These are the Phase 1 Configuration module tables from the PRD.
 
 Priority.name / EmailServer.label are unique per organization, not globally
-— enforced via a composite (org_id, name) unique constraint rather than a
+- enforced via a composite (org_id, name) unique constraint rather than a
 single-column one, since this platform hosts multiple organizations and two
 different orgs must each be free to use "Critical" as a priority name,
 "Primary SMTP" as an email server label, etc.
@@ -10,8 +10,8 @@ different orgs must each be free to use "Critical" as a priority name,
 KpiModelCatalog is the one exception: it's a single shared catalog of
 detection-model files across every organization on the deployment (there's
 one physical model file per KPI regardless of tenant count), so its name is
-globally unique. org_id is left on the column — additive-only migration
-policy — but is no longer read or written by any endpoint.
+globally unique. org_id is left on the column - additive-only migration
+policy - but is no longer read or written by any endpoint.
 """
 from datetime import datetime
 from typing import Optional
@@ -20,13 +20,13 @@ from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
 class Priority(SQLModel, table=True):
-    __tablename__ = "priorities"  # type: ignore[assignment]
+    __tablename__ = "priorities"  
     __table_args__ = (UniqueConstraint("org_id", "name", name="uq_priorities_org_id_name"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str                                # 2-40 chars, unique within org
-    color: str                               # hex color, e.g. "#FF0000"
-    level: int = Field(default=99)           # severity rank, 1 = highest; 99 = unranked
+    name: str                                
+    color: str                               
+    level: int = Field(default=99)           
     enabled: bool = Field(default=True)
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -36,7 +36,7 @@ class Priority(SQLModel, table=True):
 
 
 class Timezone(SQLModel, table=True):
-    __tablename__ = "timezones"  # type: ignore[assignment]
+    __tablename__ = "timezones"  
 
     id: Optional[int] = Field(default=None, primary_key=True)
     abbreviation: str
@@ -47,14 +47,14 @@ class Timezone(SQLModel, table=True):
 
 
 class Zone(SQLModel, table=True):
-    __tablename__ = "zones"  # type: ignore[assignment]
+    __tablename__ = "zones"  
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str                                   # 2-60 chars
+    name: str                                   
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
-    # Superseded by timezone_id below (real FK into the static timezones
-    # catalog) — left in place, unused, per this project's additive-only
-    # migration policy. Never read or written by any endpoint anymore.
+    
+    
+    
     timezone: Optional[str] = None
     timezone_id: Optional[int] = Field(default=None, foreign_key="timezones.id")
     description: Optional[str] = None
@@ -66,20 +66,20 @@ class Zone(SQLModel, table=True):
 
 
 class EmailServer(SQLModel, table=True):
-    __tablename__ = "email_servers"  # type: ignore[assignment]
+    __tablename__ = "email_servers"  
     __table_args__ = (UniqueConstraint("org_id", "label", name="uq_email_servers_org_id_label"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    label: str                                  # 2-60 chars, unique within org
+    label: str                                  
     smtp_host: str
     smtp_port: int = 587
     username: str
-    password_encrypted: str                     # AES-encrypted, never returned in plaintext
+    password_encrypted: str                     
     use_tls: bool = Field(default=True)
     from_address: str
     from_name: str
     enabled: bool = Field(default=True)
-    is_default: bool = Field(default=False)     # org's default outgoing server
+    is_default: bool = Field(default=False)     
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: Optional[str] = None
@@ -89,16 +89,16 @@ class EmailServer(SQLModel, table=True):
 
 class KpiModelCatalog(SQLModel, table=True):
     """Catalog of AI model files, shared across every organization on this
-    deployment — not org-scoped (see module docstring)."""
-    __tablename__ = "kpi_model_catalog"  # type: ignore[assignment]
+    deployment - not org-scoped (see module docstring)."""
+    __tablename__ = "kpi_model_catalog"  
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True)              # 2-60 chars, globally unique
-    model_path: str                             # path or URI to model weights
-    confidence_threshold: float = 0.5          # 0.00-1.00
+    name: str = Field(unique=True)              
+    model_path: str                             
+    confidence_threshold: float = 0.5          
     enabled: bool = Field(default=True)
-    # Superseded — this catalog is shared across every org now. Left in
-    # place, unused, per this project's additive-only migration policy.
+    
+    
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: Optional[str] = None

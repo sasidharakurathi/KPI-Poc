@@ -9,7 +9,7 @@ from ..pose_features import PoseFeatures, L_SH, R_SH, L_HIP, R_HIP, L_KN, R_KN, 
 from ..event_bus import EventBus
 from ...config import settings
 
-# Shoulder, hip, knee, ankle groups — at least one side must be visible per group
+# Shoulder, hip, knee, ankle groups - at least one side must be visible per group
 _FULL_BODY_GROUPS = [(L_SH, R_SH), (L_HIP, R_HIP), (L_KN, R_KN), (L_AN, R_AN)]
 
 _BATCH_SIZE = 4

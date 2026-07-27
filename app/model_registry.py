@@ -18,7 +18,7 @@ _WARMUP_SPECS: dict[str, tuple[int, bool]] = {
     "ppe":               (512, False),
     "yolo26s-pose":      (512, False),
     "fire-smoke":        (512, False),
-    "yolo26m-pose":      (640, True),   # dynamic shape; .track() is how both its consumers call it
+    "yolo26m-pose":      (640, True), 
     "yolo26m":           (512, False),
     "cigarette":         (320, False),
     "ppl-count-yolo26m": (640, True),
@@ -68,7 +68,6 @@ def preload_all(model_paths: set[str]) -> None:
     for path in sorted(model_paths):
         get_model(path)
 
-    # Re-warm across several threads so each one's first CUDA call is paid now, not on the first real job.
     paths = sorted(model_paths)
     with ThreadPoolExecutor(max_workers=_WARMUP_THREADS, thread_name_prefix="warmup") as ex:
         futures = [ex.submit(_warm_up, _models[p], p) for p in paths]

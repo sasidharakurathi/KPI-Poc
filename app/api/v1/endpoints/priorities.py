@@ -1,4 +1,4 @@
-"""Priority configuration endpoints — Phase 1.
+"""Priority configuration endpoints - Phase 1.
 
 Implements:
   GET    /api/config/priorities           List all priorities (enabled + disabled)
@@ -8,7 +8,7 @@ Implements:
   PATCH  /api/config/priorities/{id}/toggle   Enable / disable
 
 org_id is always derived from the authenticated caller (require_permission),
-never from the request body — see app/schemas/config.py's module docstring.
+never from the request body - see app/schemas/config.py's module docstring.
 
 Models used: Priority (app.db.models.domain_config)
 Schemas: PriorityCreate, PriorityResponse (app.schemas.config)
@@ -29,7 +29,7 @@ async def list_priorities(
     session: DbSession,
     user: dict = Depends(require_permission("configuration", "view")),
 ):
-    """List every priority for the caller's org, enabled or disabled — a
+    """List every priority for the caller's org, enabled or disabled - a
     disabled row must stay visible so it can be re-enabled from this list."""
     priorities = session.exec(
         select(Priority).where(Priority.org_id == user.get("org_id")).order_by(Priority.id)

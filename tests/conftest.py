@@ -19,13 +19,13 @@ os.environ["JWT_SECRET_KEY"] = "test-only-secret-key-do-not-use-in-prod"
 os.environ["JWT_AUTH_ENABLED"] = "false"
 
 # Organization logo uploads (test_organization.py) must not write into the
-# real project's storage/logos/ directory — sandboxed the same way
+# real project's storage/logos/ directory - sandboxed the same way
 # DATABASE_URL is above, into a throwaway temp dir instead.
 _tmp_logos_dir = Path(tempfile.gettempdir()) / "vision_ai_phase0_test_logos"
 os.environ["LOGOS_DIR"] = str(_tmp_logos_dir)
 
 # Configured so every test's org registration auto-seeds a default
-# EmailServer (see auth_service._seed_default_email_server) — otherwise every
+# EmailServer (see auth_service._seed_default_email_server) - otherwise every
 # test that creates a user or requests a password reset would 422 on the
 # "no default email server configured" check. The values are fake/
 # unreachable; actual sending is mocked in _mock_email_sending below, so
@@ -48,7 +48,7 @@ from app.db.engine import get_engine, init_db  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _init_test_db():
-    """Fresh schema + rate-limiter state per test — auth/org data (esp. "one
+    """Fresh schema + rate-limiter state per test - auth/org data (esp. "one
     org per deployment") and the process-global rate limiters must not leak
     between tests."""
     from app.core.rate_limit import login_limiter, password_reset_limiter

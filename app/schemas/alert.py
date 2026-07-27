@@ -1,8 +1,8 @@
-"""Alert schemas — Phase 4.
+"""Alert schemas - Phase 4.
 
 Field names/shape match the frontend's real contract exactly
 (`vision-ai-frontend/src/types/api.ts` AlertRecord/AlertFrame/AlertsResponse)
-— `src/api/alerts.ts` explicitly notes it already mirrors the real
+- `src/api/alerts.ts` explicitly notes it already mirrors the real
 GET /api/alerts query/response shapes, so no divergence to reconcile here
 (unlike Auth, which had no pre-existing real contract to match).
 """

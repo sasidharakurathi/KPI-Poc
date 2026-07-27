@@ -1,12 +1,12 @@
-"""User management schemas — Phase 7.
+"""User management schemas - Phase 7.
 
 Field names/shape match the frontend's real contract (`vision-ai-frontend/
 src/types/domain.ts` AppUser, `src/api/users.ts` UserCreateInput/
-UserUpdateInput) — not the PRD-literal draft this file originally had.
+UserUpdateInput) - not the PRD-literal draft this file originally had.
 Notably:
   - ids are surfaced as strings (DB uses int PKs; app.services.user_service
     converts at the boundary).
-  - a single `email` field — the backend's User model has separate
+  - a single `email` field - the backend's User model has separate
     personal_email/login_email; both are set to this same value here.
   - status is 'active' | 'inactive' | 'deleted', mapped from the backend's
     'active' | 'disabled' | 'soft_deleted' | 'pending_verification'.

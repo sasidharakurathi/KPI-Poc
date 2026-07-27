@@ -112,7 +112,7 @@ def test_toggle_unknown_entry_404s(client, owner):
 
 def test_catalog_is_global_not_org_scoped(client, owner, db_session):
     """KPIConfiguration is shared across every organization (see the model's
-    docstring) — a second org must see the exact same row a first org wrote,
+    docstring) - a second org must see the exact same row a first org wrote,
     not a 404 and not a separate copy of its own."""
     from .conftest import VALID_REGISTER_PAYLOAD, register_activate_login
 
@@ -175,7 +175,7 @@ def test_toggle_writes_through_to_config_json(client, owner, monkeypatch):
 
 def test_model_ids_do_not_write_through(client, owner, monkeypatch):
     """No sound way to collapse a list of model_ids onto config.json's single
-    model_path — assigning models should not touch the pipeline config file."""
+    model_path - assigning models should not touch the pipeline config file."""
     calls = []
     import app.api.v1.endpoints.kpis as kpis_ep
     monkeypatch.setattr(kpis_ep, "update_kpi_config", lambda cls_name, updates: calls.append((cls_name, updates)) or updates)

@@ -36,18 +36,11 @@ class Settings(BaseSettings):
     # Symmetric key for encrypting the SMTP password at rest (see .env.example)
     EMAIL_ENCRYPTION_KEY: Optional[str] = None
 
-    # Base URL this backend is reachable at — used to build links in outgoing
+    # Base URL this backend is reachable at - used to build links in outgoing
     # account emails (activation, etc.). Not the frontend's URL.
     PUBLIC_BASE_URL: str = "http://localhost:8000"
 
     # ── Bootstrap SMTP defaults ─────────────────────────────────────────────
-    # Used exactly once per organization: register_organization() copies these
-    # into that org's first EmailServer row (is_default=True) so there's
-    # something to send the very first activation email through, before any
-    # admin has had a chance to configure one via Configuration > Email
-    # Servers. If any required field here is unset, no row is seeded and
-    # registration proceeds anyway (see app/services/email_service.py) — this
-    # is a deployment-level convenience, not a hard requirement to sign up.
     DEFAULT_SMTP_HOST: Optional[str] = None
     DEFAULT_SMTP_PORT: int = 587
     DEFAULT_SMTP_USERNAME: Optional[str] = None
@@ -65,8 +58,6 @@ class Settings(BaseSettings):
     JWT_ISSUER: str = "vision-ai"
 
     # ── DB Migrations ───────────────────────────────────────────────────────
-    # Set True to apply schema migrations on startup. Keep False in production
-    # until you are ready to run them; then flip to True, restart once, flip back.
     MIGRATION_ENABLED: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}

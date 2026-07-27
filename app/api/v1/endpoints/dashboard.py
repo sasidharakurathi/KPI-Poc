@@ -1,4 +1,4 @@
-"""Dashboard aggregation endpoints — Phase 5.
+"""Dashboard aggregation endpoints - Phase 5.
 
 Implements:
   GET /api/dashboard/summary        Alert counts, camera status summary
@@ -6,7 +6,7 @@ Implements:
   GET /api/dashboard/cameras        Camera list with live connectivity status
 
 These match the PRD's original spec-literal draft rather than a real
-frontend contract — the actual Dashboard page composes its entire view from
+frontend contract - the actual Dashboard page composes its entire view from
 GET /api/organization, /api/cameras, and /api/alerts (all already built) and
 has no caller for any of these three. Built anyway for PRD completeness,
 following the same call made for Phase 4's alert export endpoint. Zone-scoped
@@ -32,7 +32,7 @@ def _parse_date(d: Optional[str]) -> Optional[datetime]:
     try:
         return datetime.fromisoformat(d)
     except ValueError:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid date '{d}' — expected ISO 8601.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid date '{d}' - expected ISO 8601.")
 
 
 @router.get("/summary", response_model=DashboardSummaryResponse)

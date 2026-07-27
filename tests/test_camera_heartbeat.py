@@ -1,6 +1,6 @@
 """Phase 4 (camera-offline heartbeat monitor) tests.
 
-_check_once() is a plain sync function — tested directly, no asyncio needed.
+_check_once() is a plain sync function - tested directly, no asyncio needed.
 stream_recorder_manager.status_for() is monkeypatched so these tests never
 touch real RTSP/recording infrastructure.
 """
@@ -88,14 +88,14 @@ def test_non_recording_camera_is_never_touched(db_session, monkeypatch):
 
     cam = db_session.get(Camera, "CAM-HB4")
     db_session.refresh(cam)
-    assert cam.connectivity_status == "active"  # untouched — camera isn't monitored
+    assert cam.connectivity_status == "active"  # untouched - camera isn't monitored
 
 
 def test_no_flapping_when_status_unchanged(db_session, monkeypatch):
     from app.services.camera_heartbeat import _check_once
 
     _make_camera(db_session, "CAM-HB5", connectivity_status="active")
-    _patch_status(monkeypatch, "connected")  # maps to "active" — no transition
+    _patch_status(monkeypatch, "connected")  # maps to "active" - no transition
 
     _check_once()
 

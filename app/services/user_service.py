@@ -25,10 +25,6 @@ def _actor(user: dict) -> tuple[Optional[int], Optional[str]]:
     sub = user.get("sub")
     return (int(sub) if sub is not None else None), user.get("username")
 
-# Backend status -> frontend status (AppUser.status: 'active'|'inactive'|'deleted').
-# "pending_verification" only ever applies to the Phase 0 org-owner sign-up
-# flow, not Phase-7-created users, but is mapped defensively since the Owner
-# themselves shows up in this same user list.
 _STATUS_TO_FRONTEND = {
     "active": "active",
     "disabled": "inactive",
@@ -93,7 +89,7 @@ def _check_email_unique(
 ) -> None:
     """Scoped to org_id: emails only need to be unique within an organization,
     not globally. Note this is currently only enforced at the application
-    level — User.personal_email/login_email still carry a bare (non-composite)
+    level - User.personal_email/login_email still carry a bare (non-composite)
     unique=True DB constraint, which is harmless while "one org per
     deployment" holds but would need a real (org_id, email) composite
     constraint if multi-tenancy is ever turned on."""
@@ -108,10 +104,6 @@ def _check_email_unique(
 
 
 def create_user(db: Session, caller: dict, payload: UserCreateInput) -> UserResponse:
-    # Checked first, before touching anything else: onboarding a user always
-    # sends them an email, so there's no point validating the rest of the
-    # payload if there's nowhere to send it from. User-initiated action after
-    # signup -> hard-fails per app.services.email_service's contract.
     from app.services.email_service import get_default_email_server
 
     org_id = caller.get("org_id")
@@ -141,8 +133,6 @@ def create_user(db: Session, caller: dict, payload: UserCreateInput) -> UserResp
     try:
         db.commit()
     except IntegrityError:
-        # Backstop for the TOCTOU race in the username/email-uniqueness
-        # checks above — two concurrent creates can both pass them.
         db.rollback()
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -163,7 +153,7 @@ def create_user(db: Session, caller: dict, payload: UserCreateInput) -> UserResp
 
 
 def _send_onboarding_emails(db: Session, org_id: Optional[int], server, user: User, temp_password: str) -> None:
-    """Best-effort from here on — the hard requirement (a default email
+    """Best-effort from here on - the hard requirement (a default email
     server must exist) was already enforced before the user was created;
     a transient SMTP failure at send time shouldn't undo that."""
     from app.services.email_service import send_email
@@ -223,7 +213,7 @@ def update_user(db: Session, caller: dict, user_id: int, payload: UserUpdateInpu
     if was_admin and not new_role.is_system and _active_admin_count(db, org_id, excluding_user_id=user.id) == 0:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "At least one active Administrator must remain — assign another admin before changing this role.",
+            "At least one active Administrator must remain - assign another admin before changing this role.",
         )
 
     user.full_name = payload.full_name.strip()
@@ -268,7 +258,6 @@ def set_status(db: Session, caller: dict, user_id: int, frontend_status: str) ->
     db.refresh(user)
 
     if backend_status == "disabled":
-        # PRD: "Disable: blocks login immediately and revokes any active session."
         revoke_all_sessions(db, user)
 
     actor_id, actor_name = _actor(caller)
@@ -292,14 +281,14 @@ def soft_delete_user(db: Session, caller: dict, user_id: int) -> None:
     if role is not None and role.is_system and _active_admin_count(db, org_id, excluding_user_id=user.id) == 0:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "At least one active Administrator must remain — cannot delete the last admin.",
+            "At least one active Administrator must remain - cannot delete the last admin.",
         )
 
     user_full_name, user_username = user.full_name, user.username
     user.status = "soft_deleted"
     db.add(user)
     db.commit()
-    revoke_all_sessions(db, user)  # PRD: "permanently loses access"
+    revoke_all_sessions(db, user)
 
     actor_id, actor_name = _actor(caller)
     audit_service.log_action(
@@ -319,7 +308,7 @@ def reset_password(db: Session, caller: dict, user_id: int, new_password: str) -
     user.force_password_change = True
     db.add(user)
     db.commit()
-    revoke_all_sessions(db, user)  # a password reset should kill any live sessions too
+    revoke_all_sessions(db, user)
 
     actor_id, actor_name = _actor(caller)
     audit_service.log_action(

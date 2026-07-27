@@ -55,7 +55,7 @@ def _seed_default_email_server(db: Session, org_id: int) -> Optional[EmailServer
     """Copies DEFAULT_SMTP_* settings into a new EmailServer row for this org,
     is_default=True, so there's something to send the activation email
     through. Skipped entirely (returns None) if any required field is
-    unset — a deployment-level convenience, not a hard requirement."""
+    unset - a deployment-level convenience, not a hard requirement."""
     from app.config import settings
 
     required = (
@@ -84,7 +84,7 @@ def _seed_default_email_server(db: Session, org_id: int) -> Optional[EmailServer
 
 def get_timezone_or_422(db: Session, timezone_id_raw: str) -> Timezone:
     """The timezones catalog is static, global reference data (not
-    org-scoped), so — unlike Zone/EmailServer/Role validation elsewhere —
+    org-scoped), so - unlike Zone/EmailServer/Role validation elsewhere -
     this needs no org_id check, only existence + enabled."""
     try:
         timezone_id = int(timezone_id_raw)
@@ -101,7 +101,7 @@ def _unique_org_slug(db: Session, base_slug: str) -> str:
     """org_id (the human-readable slug) is globally unique across every
     organization on this deployment. Two orgs registering with the same or
     similarly-spelled company_name would otherwise collide on the exact same
-    slugified string — append a numeric suffix until it's free, rather than
+    slugified string - append a numeric suffix until it's free, rather than
     surfacing that as a confusing 409 for what the caller sees as an
     unrelated field (they submitted company_name, not org_id)."""
     slug = base_slug
@@ -116,12 +116,12 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
     """Creates a new Organization on this multi-tenant deployment, along with
     its built-in Owner role (is_system=True, every permission) and first
     User (status=pending_verification until the activation link is used),
-    and — if DEFAULT_SMTP_* is configured for this deployment — a default
+    and - if DEFAULT_SMTP_* is configured for this deployment - a default
     EmailServer row used to send the activation email. Returns whether that
     email was actually sent, so the caller can surface it.
 
     Any number of organizations may register; the only uniqueness
-    requirements are username/login_email (global — login has no org
+    requirements are username/login_email (global - login has no org
     selector, see app/db/models/user.py) and org_id, the slugified company
     name (deduplicated by _unique_org_slug above)."""
     if db.exec(select(User).where(User.username == payload.username)).first() is not None:
@@ -182,7 +182,7 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "The username is already taken, or the organization slug collided "
-            "with a concurrent registration — please try again.",
+            "with a concurrent registration - please try again.",
         )
     db.refresh(org)
     db.refresh(owner)
@@ -193,7 +193,7 @@ def register_organization(db: Session, payload) -> tuple[Organization, User, Rol
 
 
 def _send_activation_email(db: Session, org_id: int, user: User, token: str) -> bool:
-    """Best-effort by necessity — an org can't have a configured EmailServer
+    """Best-effort by necessity - an org can't have a configured EmailServer
     before it exists, so this can't hard-fail the way create_user/
     request_password_reset do. Returns whether the email actually sent, so
     RegisterResponse can be honest about it instead of a silent log line."""
@@ -203,7 +203,7 @@ def _send_activation_email(db: Session, org_id: int, user: User, token: str) -> 
     server = try_get_default_email_server(db, org_id)
     if server is None:
         logger.warning(
-            "[auth] no default email server configured for org %s — activation email "
+            "[auth] no default email server configured for org %s - activation email "
             "not sent. Activation token: %s", org_id, token,
         )
         return False
@@ -358,7 +358,7 @@ def revoke_all_sessions(db: Session, user: User) -> None:
     claim on every request) and revokes every outstanding refresh token.
 
     A still-unexpired access token from before this call stops working on its
-    very next use — it doesn't have to wait out its `exp`. Used by logout and
+    very next use - it doesn't have to wait out its `exp`. Used by logout and
     password reset; Phase 7's disable/delete should call this too.
     """
     user.token_version += 1
@@ -375,7 +375,7 @@ def logout(db: Session, raw_refresh_token: str) -> None:
     """Logout revokes the whole session, not just the one refresh token: every
     access token already handed out to this user is invalidated too (see
     revoke_all_sessions). If the token isn't found or already revoked, this is
-    a silent no-op — the response is identical either way, so it can't be used
+    a silent no-op - the response is identical either way, so it can't be used
     to probe whether a token is valid."""
     token_hash = hash_token(raw_refresh_token)
     row = db.exec(select(RefreshToken).where(RefreshToken.token_hash == token_hash)).first()
@@ -396,19 +396,8 @@ def request_password_reset(db: Session, email: str, request: Optional[Request]) 
 
     user = db.exec(select(User).where(User.login_email == email)).first()
     if user is None or user.status == "soft_deleted":
-        return  # never reveal whether the email exists
+        return
 
-    # Each organization configures its own default email server, so which
-    # one to check can only be known once the user (and therefore their org)
-    # has been resolved — unlike the old single-org version of this function,
-    # which could check "the" deployment's email server before the
-    # user-specific lookup, keeping the failure mode identical whether or
-    # not the email existed. That property doesn't survive multi-tenancy:
-    # this now hard-fails with 422 only for a *real* account whose org has no
-    # default email server configured, which is a deliberate choice (surface
-    # misconfiguration clearly to whoever is testing/setting up the flow)
-    # over silently no-op-ing — same tradeoff app.services.email_service's
-    # other callers (create_user, etc.) already make.
     from app.services.email_service import get_default_email_server
 
     server = get_default_email_server(db, user.org_id)
@@ -460,7 +449,7 @@ def reset_password(db: Session, token: str, new_password: str) -> User:
     db.add(user)
     db.commit()
 
-    revoke_all_sessions(db, user)  # kills every other live session too
+    revoke_all_sessions(db, user)
     db.refresh(user)
     return user
 

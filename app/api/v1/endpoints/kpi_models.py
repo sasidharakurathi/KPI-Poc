@@ -9,7 +9,7 @@ Implements:
 
 No Edit action by design (PRD 3.5): disable the wrong one, create a new entry.
 
-Shared across every organization on this deployment, not org-scoped — see
+Shared across every organization on this deployment, not org-scoped - see
 app.db.models.domain_config.KpiModelCatalog's docstring. Every endpoint here
 still requires authentication + the "configuration" permission, just not
 ownership of a specific org's row (there isn't one).
@@ -83,13 +83,6 @@ async def delete_kpi_model(
     model = session.get(KpiModelCatalog, id)
     if not model:
         raise HTTPException(status_code=404, detail="KPI model not found.")
-
-    # PRD §3.5: "Delete is only available when no KPI currently references
-    # the model." There is no KPI-capability table yet to check against —
-    # that's Phase 3 (KPI Management), which doesn't exist in this codebase
-    # yet. Once it does, add the same reference-check pattern used by
-    # priorities.py/zones.py's delete handlers here. Not a bug to "fix" now
-    # — genuinely blocked on Phase 3 landing first.
 
     session.delete(model)
     try:

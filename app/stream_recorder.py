@@ -1,4 +1,4 @@
-"""Worker 1 — continuous IP camera capture. One thread per camera rolls RTSP frames into fixed-length clips and hands each off to clip_processor."""
+"""Worker 1 - continuous IP camera capture. One thread per camera rolls RTSP frames into fixed-length clips and hands each off to clip_processor."""
 import logging
 import os
 import threading
@@ -37,12 +37,10 @@ def build_stream_url(cam) -> Optional[str]:
                 password = decrypt_secret(cam.stream_password_encrypted)
             except EmailCryptoNotConfigured:
                 logger.warning(
-                    "[stream:%s] stream password can't be decrypted — connecting without it",
+                    "[stream:%s] stream password can't be decrypted - connecting without it",
                     cam.camera_id,
                 )
-        # URL-encode: usernames/passwords can contain @, :, /, etc. which would
-        # otherwise be misread as URL separators (e.g. an '@' in the password
-        # gets mistaken for the userinfo/host boundary).
+                
         user_enc = quote(cam.stream_username, safe="")
         auth = f"{user_enc}:{quote(password, safe='')}@" if password else f"{user_enc}@"
 
@@ -91,12 +89,6 @@ class ClipRecorder:
         out_dir = settings.RECORDINGS_DIR / self.camera_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # Some cameras (observed: Hikvision) offer both MD5 and SHA-256 Digest
-        # challenges in one 401 response; FFmpeg's RTSP client can't handle
-        # multiple challenges and never retries with credentials at all. This
-        # local proxy strips the non-MD5 challenge before FFmpeg sees it, so
-        # its normal (working) single-algorithm digest auth takes over.
-        # Harmless no-op for cameras that never send multiple challenges.
         connect_url = self.stream_url
         parsed = urlsplit(self.stream_url)
         if parsed.hostname and parsed.port:
@@ -116,7 +108,7 @@ class ClipRecorder:
                 self.status = "reconnecting"
                 self.last_error = "failed to open stream"
                 cap.release()
-                logger.warning(f"[recorder:{self.camera_id}] {self.last_error} — retrying")
+                logger.warning(f"[recorder:{self.camera_id}] {self.last_error} - retrying")
                 if self._stop.wait(settings.STREAM_RECONNECT_DELAY):
                     break
                 continue
@@ -152,7 +144,7 @@ class ClipRecorder:
                     if not ret:
                         consecutive_failures += 1
                         if consecutive_failures >= _MAX_CONSECUTIVE_READ_FAILURES:
-                            raise RuntimeError("stream stalled — too many failed reads")
+                            raise RuntimeError("stream stalled - too many failed reads")
                         time.sleep(0.05)
                         continue
                     consecutive_failures = 0
@@ -180,7 +172,7 @@ class ClipRecorder:
             except Exception as exc:
                 self.status = "reconnecting"
                 self.last_error = str(exc)
-                logger.warning(f"[recorder:{self.camera_id}] {exc} — reconnecting")
+                logger.warning(f"[recorder:{self.camera_id}] {exc} - reconnecting")
             finally:
                 if writer is not None:
                     writer.release()

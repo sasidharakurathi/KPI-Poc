@@ -1,7 +1,7 @@
-"""Role & permissions schemas — Phase 6.
+"""Role & permissions schemas - Phase 6.
 
 Field names/shape match the frontend's real contract (`vision-ai-frontend/
-src/types/domain.ts` Role/PermissionMatrix, `src/api/roles.ts` RoleInput) —
+src/types/domain.ts` Role/PermissionMatrix, `src/api/roles.ts` RoleInput) -
 not the PRD-literal draft this file originally had. Notably:
   - ids are surfaced as strings (the DB uses int PKs internally; app.services
     .role_service converts at the boundary).
@@ -47,7 +47,7 @@ class RoleInput(BaseModel):
     @field_validator("zone_ids")
     @classmethod
     def _dedupe_zone_ids(cls, v: list[str]) -> list[str]:
-        """Silently collapse duplicates rather than rejecting them — the
+        """Silently collapse duplicates rather than rejecting them - the
         frontend builds this list from a multi-select and a stray duplicate
         shouldn't be a hard validation error."""
         seen: set[str] = set()

@@ -1,19 +1,19 @@
-"""Central email-sending service for account/transactional email — the ONLY
+"""Central email-sending service for account/transactional email - the ONLY
 place activation, password-reset, and user-onboarding emails are sent from.
 
 Every one of those always sends via the organization's default
 (is_default=True, enabled=True) EmailServer row (app.db.models.domain_config)
-— never the legacy app.notifications Configuration-table mechanism, which
+- never the legacy app.notifications Configuration-table mechanism, which
 stays reserved for KPI detection alert emails only (a separate, pipeline-tied
 system; see that module's docstring).
 
 Callers that need an email to go out as part of a user-initiated action
 (inviting a user, requesting a password reset) MUST call
-get_default_email_server() first and let its 422 propagate — silently
+get_default_email_server() first and let its 422 propagate - silently
 continuing without telling the caller email failed is exactly the kind of
 edge case this module exists to close off. The one exception is org
 registration itself, which cannot require an EmailServer to already exist
-(nothing does, before the org does) — it uses try_get_default_email_server()
+(nothing does, before the org does) - it uses try_get_default_email_server()
 and degrades gracefully; see app.services.auth_service.
 """
 import logging
@@ -43,8 +43,8 @@ def try_get_default_email_server(db: Session, org_id: Optional[int]) -> Optional
     return db.exec(
         select(EmailServer).where(
             EmailServer.org_id == org_id,
-            EmailServer.is_default == True,  # noqa: E712
-            EmailServer.enabled == True,  # noqa: E712
+            EmailServer.is_default == True, 
+            EmailServer.enabled == True,
         )
     ).first()
 
@@ -61,7 +61,7 @@ def get_default_email_server(db: Session, org_id: Optional[int]) -> EmailServer:
 
 
 def send_email(server: EmailServer, to_addresses: list[str], subject: str, html: str, plain: str) -> None:
-    """Synchronous send via `server`'s own credentials. Raises on failure —
+    """Synchronous send via `server`'s own credentials. Raises on failure -
     callers decide whether that's fatal (see module docstring) or best-effort
     (org registration's activation email)."""
     password = decrypt_secret(server.password_encrypted) if server.password_encrypted else ""

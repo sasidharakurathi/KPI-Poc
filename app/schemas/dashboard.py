@@ -1,6 +1,6 @@
-"""Dashboard schemas — Phase 5.
+"""Dashboard schemas - Phase 5.
 
-These match the PRD's original spec-literal draft for /api/dashboard/* — see
+These match the PRD's original spec-literal draft for /api/dashboard/* - see
 app/services/dashboard_service.py's module docstring for why there's no
 real frontend contract to match here (unlike most other phases).
 """
@@ -41,8 +41,8 @@ class DashboardCameraItem(BaseModel):
     zone_name: Optional[str] = None
     priority_name: Optional[str] = None
     priority_color: Optional[str] = None
-    status: str                 # "active" | "inactive" — admin enabled toggle
-    connectivity_status: str    # "active" | "inactive" | "pending" — live heartbeat-tracked
+    status: str                 # "active" | "inactive" - admin enabled toggle
+    connectivity_status: str    # "active" | "inactive" | "pending" - live heartbeat-tracked
     stream_status: str          # "disabled" | "starting" | "connected" | "reconnecting" | "stopped"
 
 

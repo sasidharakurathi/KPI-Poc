@@ -1,4 +1,4 @@
-"""Email server (SMTP) configuration endpoints — Phase 1.
+"""Email server (SMTP) configuration endpoints - Phase 1.
 
 Implements:
   GET    /api/config/email-servers
@@ -12,7 +12,7 @@ Password is encrypted using app.email_crypto before storage and never
 returned. org_id is always derived from the authenticated caller
 (require_permission), never from the request body. Setting is_default=true
 un-defaults every other server in the same org, so "the org's default
-server" is always unambiguous — matches the PRD's "one implicitly treated as
+server" is always unambiguous - matches the PRD's "one implicitly treated as
 the organization default."
 
 Models used: EmailServer (app.db.models.domain_config)
@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/config/email-servers", tags=["config-email-serve
 
 def _clear_other_defaults(session, org_id, excluding_id=None) -> None:
     others = session.exec(
-        select(EmailServer).where(EmailServer.org_id == org_id, EmailServer.is_default == True)  # noqa: E712
+        select(EmailServer).where(EmailServer.org_id == org_id, EmailServer.is_default == True)
     ).all()
     for server in others:
         if server.id != excluding_id:

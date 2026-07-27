@@ -1,6 +1,6 @@
 """Configuration-module schemas (Phase 1): priorities, zones, email servers, KPI models.
 
-org_id is intentionally NOT accepted on any Create/Update schema — it's
+org_id is intentionally NOT accepted on any Create/Update schema - it's
 derived server-side from the authenticated caller (see app/core/dependencies
 .require_permission) and never trusted from client input. Letting a client
 set/reassign org_id would let any caller create or move rows into a
@@ -118,7 +118,7 @@ class KpiModelCreate(BaseModel):
     enabled: bool = True
 
 class KpiModelResponse(BaseModel):
-    """Shared across every organization — no org_id field, unlike the other
+    """Shared across every organization - no org_id field, unlike the other
     Phase 1 config responses above (see app.db.models.domain_config
     .KpiModelCatalog's docstring)."""
     model_config = {"from_attributes": True}

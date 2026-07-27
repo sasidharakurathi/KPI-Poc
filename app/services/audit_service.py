@@ -7,7 +7,7 @@ broadcast in app.db.create_alert or the stream sync in camera_service: a
 failure to write an audit entry must never break the actual mutation it
 describes, so it swallows and logs its own errors rather than raising.
 
-No zone-scoping on the read side (list_audit_logs/GET /api/audit) — Role and
+No zone-scoping on the read side (list_audit_logs/GET /api/audit) - Role and
 User entries have no zone concept to scope by at all, so a partial
 (Camera-only) restriction would be inconsistent. Visibility is gated purely
 by require_permission("audit_log", "view"), matching how audit access is

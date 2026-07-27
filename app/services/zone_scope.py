@@ -14,7 +14,7 @@ from app.db.models import Camera, Role
 
 
 def allowed_camera_ids_for_role(role: Optional[Role], db: Session) -> Optional[set[str]]:
-    """Takes an already-resolved Role (or None) — for callers that need the
+    """Takes an already-resolved Role (or None) - for callers that need the
     role object for other checks too (e.g. the websocket endpoint's
     permission check) and don't want to look it up twice."""
     if role and role.is_system:
@@ -27,7 +27,7 @@ def allowed_camera_ids_for_role(role: Optional[Role], db: Session) -> Optional[s
 
 
 def allowed_camera_ids_for_user(user: dict, db: Session) -> Optional[set[str]]:
-    """Convenience wrapper for the require_permission dependency's user dict —
+    """Convenience wrapper for the require_permission dependency's user dict -
     resolves the role itself, then delegates to allowed_camera_ids_for_role."""
     if user.get("is_system"):
         return None

@@ -1,4 +1,4 @@
-"""Organization & Site schemas — Phase 0."""
+"""Organization & Site schemas - Phase 0."""
 from datetime import datetime
 from typing import Optional
 
@@ -17,7 +17,7 @@ class OrganizationResponse(BaseModel):
     site_address: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    # Populated on every response whenever the org has a logo — re-read from
+    # Populated on every response whenever the org has a logo - re-read from
     # disk and base64-encoded each time (see
     # app.api.v1.endpoints.organization._to_organization_response).
     logo_base64: Optional[str] = None
@@ -36,7 +36,7 @@ class OrganizationUpdate(BaseModel):
 
 class OrganizationLogoUpload(BaseModel):
     """logo_base64 accepts either a plain base64 string or a data URI
-    (\"data:image/png;base64,....\") — the data URI prefix, if present, is
+    (\"data:image/png;base64,....\") - the data URI prefix, if present, is
     stripped before decoding; the actual image type is then determined by
     sniffing the decoded bytes' own magic number, not trusted from any
     client-declared mime type."""

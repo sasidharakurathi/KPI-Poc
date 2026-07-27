@@ -3,13 +3,13 @@
 These three endpoints match the PRD's original spec-literal draft
 (GET /summary, /alert-chart, /cameras) rather than a real frontend contract:
 the actual Dashboard page (vision-ai-frontend/src/pages/Dashboard) composes
-its entire view from GET /api/organization, /api/cameras, and /api/alerts —
-all already built in earlier phases — and has no caller for any of these
+its entire view from GET /api/organization, /api/cameras, and /api/alerts -
+all already built in earlier phases - and has no caller for any of these
 three. Built anyway for PRD completeness, the same call made for Phase 4's
 alert export endpoint (frontend already does that client-side too).
 
 Zone-scoping matches Alerts/the websocket exactly (see app.services.zone_scope)
-— a zone-restricted role only sees cameras/alerts within its own zones.
+- a zone-restricted role only sees cameras/alerts within its own zones.
 """
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -56,10 +56,6 @@ def get_summary(db: Session, user: dict) -> DashboardSummaryResponse:
         status_counts[c.connectivity_status] = status_counts.get(c.connectivity_status, 0) + 1
         priority_name_by_camera[c.camera_id] = priorities_by_id.get(c.priority_id, "Unassigned")
 
-    # org_id is the real tenant boundary — always applied, regardless of
-    # zone-scoping (allowed=None for an unrestricted role must never mean
-    # "see every organization's alerts", only "see every zone within my
-    # own org"). allowed narrows further within that org when set.
     allowed = allowed_camera_ids_for_user(user, db)
     alerts_stmt = select(Alert).where(Alert.org_id == org_id)
     if allowed is not None:
@@ -76,25 +72,15 @@ def get_summary(db: Session, user: dict) -> DashboardSummaryResponse:
 
     total_zones = len(db.exec(select(Zone).where(Zone.org_id == org_id)).all())
 
-    # Global counts, shared across every organization on the deployment —
-    # KpiModelCatalog and KPIConfiguration are no longer org-scoped tables
-    # (see both models' docstrings), so these are deployment-wide facts, not
-    # per-org ones.
     active_kpi_models = db.exec(
         select(_func.count()).select_from(KpiModelCatalog).where(
-            KpiModelCatalog.enabled == True,  # noqa: E712
+            KpiModelCatalog.enabled == True,
         )
     ).one()
 
-    # Distinct from active_kpi_models above: this counts entries in the KPI
-    # Management catalog ("which detection capabilities are turned on" —
-    # fire_smoke/ppe/etc., seeded via scripts/seed_kpi_catalog.py), not the
-    # KPI Models/detection-model file catalog. enable_status defaults to
-    # True at the column level, but a never-created row (no catalog entry
-    # yet for a given KPI) isn't counted as active — only rows that exist.
     active_kpis = db.exec(
         select(_func.count()).select_from(KPIConfiguration).where(
-            KPIConfiguration.enable_status == True,  # noqa: E712
+            KPIConfiguration.enable_status == True,
         )
     ).one()
 

@@ -7,11 +7,11 @@ Zone-scoping: a role with a non-empty zone_ids restriction (Phase 6) only
 sees alerts whose camera belongs to one of those zones. Alerts with no
 camera at all (job_id=None connectivity alerts with a deleted camera, or an
 ad-hoc video upload never tied to a registered camera) are hidden from any
-zone-restricted role — there's no zone to prove they're allowed to see it,
+zone-restricted role - there's no zone to prove they're allowed to see it,
 so the safe default is to hide rather than show. Unrestricted roles (empty
 zone_ids) and the built-in Owner role see everything.
 
-A caller who can't see an alert gets a plain 404 (not 403) — same
+A caller who can't see an alert gets a plain 404 (not 403) - same
 enumeration-safety convention used everywhere else org/zone-scoping applies
 in this app (e.g. Phase 2's camera lookups): the response is identical
 whether the alert doesn't exist or just isn't visible to this caller.
@@ -53,8 +53,6 @@ def _get_visible_alert_or_404(db: Session, user: dict, alert_id: int) -> dict:
     if alert is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Alert '{alert_id}' not found.")
 
-    # org check first — this is the real tenant boundary; an unrestricted
-    # (zone-wise) caller from a different org must still never see this.
     if alert.get("org_id") != user.get("org_id"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Alert '{alert_id}' not found.")
 
@@ -119,7 +117,7 @@ def _export_pdf(alert: dict) -> bytes:
     width, height = letter
 
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(1 * inch, height - 1 * inch, f"Alert Report — #{alert.get('id')}")
+    c.drawString(1 * inch, height - 1 * inch, f"Alert Report - #{alert.get('id')}")
 
     c.setFont("Helvetica", 11)
     y = height - 1.5 * inch
@@ -136,8 +134,8 @@ def _export_pdf(alert: dict) -> bytes:
         try:
             y -= 0.2 * inch
             c.drawImage(image_path, 1 * inch, max(y - 3 * inch, 0.5 * inch), width=4 * inch, height=3 * inch, preserveAspectRatio=True)
-        except Exception:
-            pass  # image embedding is best-effort — the field listing above is the source of truth
+        except Exception:# 
+            pass
 
     c.showPage()
     c.save()
@@ -149,8 +147,7 @@ def export_alert(db: Session, user: dict, alert_id: int, format: str) -> Respons
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "format must be 'pdf' or 'csv'.")
 
     alert = _get_visible_alert_or_404(db, user, alert_id)
-    # AlertResponse round-trip so created_at etc. are export-friendly strings,
-    # matching exactly what the JSON API itself would show for this alert.
+
     alert = AlertResponse.model_validate(alert).model_dump(mode="json")
 
     if format == "csv":

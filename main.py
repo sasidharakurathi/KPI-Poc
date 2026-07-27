@@ -1,5 +1,5 @@
 """
-main.py — People Count Vision API
+main.py - People Count Vision API
 Run: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 """
 from fastapi import FastAPI
@@ -14,8 +14,8 @@ app = FastAPI(
     description=(
         "Real-time people detection, tracking, density, and occupancy analytics "
         "powered by YOLOv8 + ByteTrack. Two independent KPI pipelines:\n\n"
-        "• **/api/v1/people-count** — live count + cumulative footfall\n"
-        "• **/api/v1/density-occupancy** — density (ppl/sqft) + occupancy alerts"
+        "• **/api/v1/people-count** - live count + cumulative footfall\n"
+        "• **/api/v1/density-occupancy** - density (ppl/sqft) + occupancy alerts"
     ),
     version="2.0.0",
 )

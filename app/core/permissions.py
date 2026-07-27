@@ -1,7 +1,7 @@
 """Canonical permission-matrix vocabulary.
 
 Must exactly match the frontend's PERMISSION_MODULES / PERMISSION_ACTIONS
-constants (vision-ai-frontend/src/types/domain.ts) — Role.permissions is
+constants (vision-ai-frontend/src/types/domain.ts) - Role.permissions is
 stored as Record<module, action[]>, e.g. {"cameras": ["view", "edit"]}.
 """
 
@@ -21,7 +21,7 @@ PERMISSION_ACTIONS: list[str] = ["view", "create", "edit", "delete"]
 
 
 def full_permission_matrix() -> dict[str, list[str]]:
-    """Every module, every action — used for the built-in Owner role."""
+    """Every module, every action - used for the built-in Owner role."""
     return {module: list(PERMISSION_ACTIONS) for module in PERMISSION_MODULES}
 
 

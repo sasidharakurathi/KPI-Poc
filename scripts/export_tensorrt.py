@@ -52,7 +52,7 @@ def _verify_engine_profile(engine_path: Path, expected_imgsz: int, expected_max_
         and max_shape[2] >= expected_imgsz and max_shape[3] >= expected_imgsz
         and min_shape[2] <= expected_imgsz and min_shape[3] <= expected_imgsz
     )
-    print(f"       {'OK' if ok else 'WARNING — does not cover expected imgsz/batch!'}", flush=True)
+    print(f"       {'OK' if ok else 'WARNING - does not cover expected imgsz/batch!'}", flush=True)
 
 
 def main() -> None:

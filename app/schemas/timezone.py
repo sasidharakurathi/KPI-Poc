@@ -1,4 +1,4 @@
-"""Timezone catalog schema — Phase 1. Read-only: no Create/Update/Delete
+"""Timezone catalog schema - Phase 1. Read-only: no Create/Update/Delete
 schemas exist because this catalog is static, seeded once at startup
 (app/db/seed_data/timezones.py) and never modified via the API."""
 from typing import Optional

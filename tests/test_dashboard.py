@@ -1,7 +1,7 @@
 """Phase 5 (Dashboard) tests.
 
 These three endpoints (/summary, /alert-chart, /cameras) match the PRD's
-spec-literal draft rather than a real frontend contract — see
+spec-literal draft rather than a real frontend contract - see
 app/services/dashboard_service.py's module docstring. Coverage focuses on
 correctness of the aggregation + the same zone-scoping rule already proven
 for Alerts (Phase 4).
@@ -145,7 +145,7 @@ def test_dashboard_summary_active_kpi_models_not_zone_scoped(client, owner, db_s
 
 def test_dashboard_summary_active_kpis_count(client, owner):
     """Distinct from active_kpi_models: this counts the KPI Management
-    catalog (KPIConfiguration — fire_smoke/ppe/etc.), not the KPI Models/
+    catalog (KPIConfiguration - fire_smoke/ppe/etc.), not the KPI Models/
     detection-model file catalog."""
     from app.kpis import list_registered_names
 
@@ -205,8 +205,8 @@ def test_dashboard_summary_zone_scoped(client, owner, db_session):
 
 def test_dashboard_summary_alerts_are_org_scoped_even_for_unrestricted_owner(client, owner):
     """Regression test: total_alerts/alerts_last_24h/alerts_by_priority used
-    to have zero org filter at all — only zone-scoping, which is a no-op for
-    an unrestricted (is_system Owner) caller — so a brand-new org's Owner
+    to have zero org filter at all - only zone-scoping, which is a no-op for
+    an unrestricted (is_system Owner) caller - so a brand-new org's Owner
     would see every other organization's alert counts on this deployment.
     Alert.org_id (resolved from camera at creation time) now closes that."""
     zone_id = _make_zone(client, owner["headers"], "Org1 Zone")
@@ -229,7 +229,7 @@ def test_dashboard_summary_alerts_are_org_scoped_even_for_unrestricted_owner(cli
 
 
 def test_dashboard_summary_active_kpi_models_is_global_across_orgs(client, owner):
-    """active_kpi_models/active_kpis are deployment-wide, not per-org — a
+    """active_kpi_models/active_kpis are deployment-wide, not per-org - a
     model created under one org must be counted in every other org's
     summary too (see app.db.models.domain_config.KpiModelCatalog's
     docstring: shared, not org-scoped)."""

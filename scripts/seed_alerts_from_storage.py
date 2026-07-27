@@ -1,19 +1,19 @@
 """Clears Alert/AlertFrame/Job rows and repopulates them from the real frame
-images already sitting on disk under storage/alerts/ — dummy DB rows backed
+images already sitting on disk under storage/alerts/ - dummy DB rows backed
 by real files, so GET /api/alerts, frame/labeled-frame downloads, exports,
 and the dashboard all have something genuine-looking to show.
 
-storage/alerts/ layout (produced by the real detection pipeline —
+storage/alerts/ layout (produced by the real detection pipeline -
 app.kpis.base's alert-saving logic):
 
     storage/alerts/<job_id>/<kpi_name>/<seq>/
         00_frame<N>.jpg .. 07_frame<N>.jpg   8 raw frames: ALERT_WINDOW_BEFORE
                                               (4) + anchor + ALERT_WINDOW_AFTER (3)
         labeled_frame<N>.jpg                 annotated copy of the anchor frame
-                                              (position 4) — only present when
+                                              (position 4) - only present when
                                               the job ran in developer mode
 
-<seq> is a running per-job save counter, not a frame index — the real anchor
+<seq> is a running per-job save counter, not a frame index - the real anchor
 frame_idx is the number in the position-4 filename (cross-checked against the
 labeled file's frame number when present). This script derives every Alert/
 AlertFrame field the same way the real pipeline would have, then assigns each
@@ -23,13 +23,13 @@ isn't recoverable from the files alone.
 
 THIS IS DESTRUCTIVE, but scoped to the target org: every existing jobs/
 alerts/alert_frames row tied to the target org's cameras is deleted first
-(printed with counts before anything happens) — other organizations' alert
+(printed with counts before anything happens) - other organizations' alert
 history on the same deployment is untouched. Camera/Zone/Priority/User/etc.
 tables are untouched everywhere.
 
 Timestamps span multiple calendar years, not just the recent past: the full
 211-alert dataset is replicated once per target year (this year, and
-years_back-1 years before it — see --years), each replica getting its own
+years_back-1 years before it - see --years), each replica getting its own
 job_id (suffixed with the year) and a timestamp randomized within that one
 year. This is what gives dashboard.get_cameras' alerts_by_year (grouped by
 year, summed across every KPI for that camera) something real to show.
@@ -114,14 +114,14 @@ def scan_storage(alerts_dir: Path) -> list[_ParsedEvent]:
 
 def _rel(path: Path) -> str:
     # settings.ALERTS_DIR (and therefore every path derived from it while
-    # scanning) may be relative — .env overrides it to "storage/alerts"
+    # scanning) may be relative - .env overrides it to "storage/alerts"
     # rather than the config.py default's already-absolute BASE_DIR/storage/
-    # alerts — so both sides are normalized to absolute before comparing.
+    # alerts - so both sides are normalized to absolute before comparing.
     return str(path.resolve().relative_to(BASE_DIR.resolve()))
 
 
 def _org_scoped_rows(session: Session, org: Organization) -> tuple[list[Alert], list[Job]]:
-    """Every Alert/Job tied to this org's cameras — via Alert.camera_id
+    """Every Alert/Job tied to this org's cameras - via Alert.camera_id
     directly, or Job.camera_id (covers a job row with no alerts, e.g. one
     that failed before producing any detection)."""
     camera_ids = set(session.exec(select(Camera.camera_id).where(Camera.org_id == org.id)).all())
@@ -151,7 +151,7 @@ def clear_existing(session: Session, org: Organization) -> tuple[int, int, int]:
 
 
 def _random_timestamp_in_year(year: int, now: datetime) -> datetime:
-    """A random moment within `year` — capped at `now` when year is the
+    """A random moment within `year` - capped at `now` when year is the
     current year, so we never generate a future timestamp."""
     start = datetime(year, 1, 1)
     end = min(datetime(year, 12, 31, 23, 59, 59), now) if year == now.year else datetime(year, 12, 31, 23, 59, 59)
@@ -163,7 +163,7 @@ def seed(
     session: Session, org: Organization, events: list[_ParsedEvent], *, years_back: int, dry_run: bool,
 ) -> tuple[int, int, int]:
     """Replicates the full real-file-backed dataset once per target year
-    (this year, and years_back-1 years before it) — same real frame images
+    (this year, and years_back-1 years before it) - same real frame images
     every time (paths are just references, not consumed per-alert), but each
     replica gets its own job_id (suffixed with the year) and a timestamp
     randomized within that specific calendar year. This is what actually
@@ -171,7 +171,7 @@ def seed(
     rather than one random timestamp per job spread thin across years."""
     cameras = list(session.exec(select(Camera).where(Camera.org_id == org.id).order_by(Camera.camera_id)).all())
     if not cameras:
-        print(f"Organization {org.id} ({org.org_id}) has no cameras — nothing to assign alerts to.")
+        print(f"Organization {org.id} ({org.org_id}) has no cameras - nothing to assign alerts to.")
         return 0, 0, 0
 
     by_job: dict[str, list[_ParsedEvent]] = {}
@@ -265,7 +265,7 @@ def main() -> None:
         else:
             org = session.exec(select(Organization).order_by(Organization.id)).first()
             if org is None:
-                print("No organizations exist yet — nothing to seed into.")
+                print("No organizations exist yet - nothing to seed into.")
                 return
 
         old_alerts, old_jobs = _org_scoped_rows(session, org)
@@ -278,7 +278,7 @@ def main() -> None:
         )
 
         if args.dry_run:
-            print("DRY RUN — not clearing or writing anything.")
+            print("DRY RUN - not clearing or writing anything.")
         else:
             cleared_frames, cleared_alerts, cleared_jobs = clear_existing(session, org)
             print(f"Cleared {cleared_jobs} jobs, {cleared_alerts} alerts, {cleared_frames} alert_frames.")
@@ -288,7 +288,7 @@ def main() -> None:
             session, org, events, years_back=args.years, dry_run=args.dry_run,
         )
 
-        mode = "DRY RUN — would write" if args.dry_run else "Wrote"
+        mode = "DRY RUN - would write" if args.dry_run else "Wrote"
         print(f"\n{mode} {jobs_written} jobs, {alerts_written} alerts, {frames_written} alert_frames.")
 
 

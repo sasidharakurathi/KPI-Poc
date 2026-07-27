@@ -1,16 +1,16 @@
 """Static, non-editable timezone catalog.
 
 Transcribed from the user-provided reference script
-(vision_ai_schema_postgres.sql) — its `time_zone_configurations` table and
+(vision_ai_schema_postgres.sql) - its `time_zone_configurations` table and
 INSERT data only. Every other table in that file (organization_details,
 priority_configuration, roles, user_details, zone_details, kpi_models,
 kpi_configuration, camera_details, jobs, alerts, alert_frames, email_logs,
 audit_logs) is a different, earlier/abandoned schema attempt superseded by
-this project's own app/db/models — not used here.
+this project's own app/db/models - not used here.
 
 Each row: (abbreviation, timezone_name, utc_offset, gmt_offset). Loaded into
 the existing Timezone model (app/db/models/domain_config.py, table
-"timezones") — note `abbreviation` is NOT unique in this data (e.g. "AST"
+"timezones") - note `abbreviation` is NOT unique in this data (e.g. "AST"
 covers both Atlantic Standard Time and Arabia Standard Time), so callers
 must always reference a timezone by its integer id, never by abbreviation.
 """
