@@ -198,7 +198,6 @@ class _ResourceSampler:
         # Per-instance Process object — avoids shared-state race between parallel KPIs
         self._proc = psutil.Process(os.getpid())
 
-        # ── CUDA (NVIDIA) ───────────────────────────────────────────────────
         self._cuda = (
             torch.cuda.is_available()
             and device.startswith("cuda")

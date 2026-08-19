@@ -1,137 +1,234 @@
-from abc import ABC, abstractmethod
+
+import logging
+from abc import ABC
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import cv2
 import numpy as np
 
+from .. import db
+from .shared_inference import SharedInference
+from ..config import settings
 
-def get_dynamic_scale(width: int, height: int) -> float:
-    """Return a scaling multiplier based on frame resolution (anchored at 720p)."""
-    return max(0.3, height / 720.0)
-
-
-@dataclass
-class Detection:
-    x1: int
-    y1: int
-    x2: int
-    y2: int
-    label: str
-    confidence: float
-    color: Optional[tuple] = None
-
-
-@dataclass
-class FrameAnnotation:
-    frame_idx: int
-    detections: list[Detection] = field(default_factory=list)
-    status_lines: list[str] = field(default_factory=list)
-    extra: Optional[dict] = None
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class KPIResult:
     kpi_name: str
     display_name: str
-    color: tuple
-    frame_annotations: list[FrameAnnotation]
-    summary: dict[str, Any]
+    summary: dict[str, Any] = field(default_factory=dict)
+
+
+_LABEL_FONT  = cv2.FONT_HERSHEY_SIMPLEX
+_LABEL_COLOR = (0, 0, 255)
+
+
+def _draw_boxes(img: np.ndarray, boxes) -> None:
+    """Draw detection boxes/labels for developer-mode labeled frames.
+    Each box: (x1, y1, x2, y2, label[, (B,G,R)])."""
+    for b in boxes:
+        x1, y1, x2, y2, label = int(b[0]), int(b[1]), int(b[2]), int(b[3]), str(b[4])
+        color = b[5] if len(b) > 5 else _LABEL_COLOR
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
+        if label:
+            cv2.putText(img, label, (x1, max(12, y1 - 6)),
+                        _LABEL_FONT, 0.5, color, 2, cv2.LINE_AA)
+
+
+class _PendingWindow:
+    """A detection awaiting its trailing frames before being written out."""
+    __slots__ = ("alert_type", "anchor", "confidence", "extra", "frames",
+                 "need_after", "boxes")
+
+    def __init__(self, alert_type, anchor, confidence, extra, before_frames,
+                 need_after, boxes):
+        self.alert_type = alert_type
+        self.anchor = anchor
+        self.confidence = confidence
+        self.extra = extra
+        self.frames = list(before_frames)   # [(frame_idx, image), ...] incl. anchor
+        self.need_after = need_after
+        self.boxes = boxes or []            # anchor detection boxes (developer mode)
 
 
 class BaseKPI(ABC):
-    """
-    Base class for every KPI.
-
-    Subclasses set:
-        name         - unique snake_case identifier
-        display_name - shown in the video overlay
-        color        - BGR tuple for bounding boxes
-
-    Concrete helpers available inside process_video():
-        self._get(key, default)              - read from config.json
-        self._save_alert(frame, alert_type,  - persist frame + DB row
-                         job_id, frame_idx,
-                         confidence, extra)
-    """
+    """Subclasses set name/display_name and implement either the split contract (setup/process_frame/finalize, preferred -- shares one decode across KPIs) or override process_video() directly (standalone)."""
 
     name: str
     display_name: str
-    color: tuple  # BGR
 
     def __init__(self) -> None:
         from ..config_loader import get_kpi_config
         self._cfg: dict[str, Any] = get_kpi_config(self.__class__.__name__)
+        self._before: int = max(0, settings.ALERT_WINDOW_BEFORE)
+        self._after: int  = max(0, settings.ALERT_WINDOW_AFTER)
+        self._buf: deque  = deque(maxlen=self._before + 1)
+        # Per-frame "before" window snapshot -- batching delays _save_alert() past when _buf still held that frame.
+        self._before_snapshots: dict[int, list[tuple[int, np.ndarray]]] = {}
+        self._pending: list[_PendingWindow] = []
+        self._job_id: str = ""
+        self.shared_cache = SharedInference()
 
     def _get(self, key: str, default: Any = None) -> Any:
-        """Read a parameter from this KPI's config.json section."""
         return self._cfg.get(key, default)
+
+    # ── sliding-window frame capture ──────────────────────────────────────────
+
+    def _observe(self, frame: np.ndarray, frame_idx: int, job_id: str = "") -> None:
+        """Feed every RAW frame in order (call once per read, before processing)."""
+        if job_id:
+            self._job_id = job_id
+
+        if self._pending:
+            still: list[_PendingWindow] = []
+            for p in self._pending:
+                p.frames.append((frame_idx, frame.copy()))
+                p.need_after -= 1
+                if p.need_after <= 0:
+                    self._flush(p)
+                else:
+                    still.append(p)
+            self._pending = still
+
+        self._buf.append((frame_idx, frame.copy()))
+        self._before_snapshots[frame_idx] = list(self._buf)
 
     def _save_alert(
         self,
-        frame: np.ndarray,
         alert_type: str,
         job_id: str,
         frame_idx: int,
         confidence: float = 1.0,
         extra: Optional[dict] = None,
-        detections: Optional[list] = None,
+        boxes: Optional[list] = None,
+        **_ignored: Any,
     ) -> None:
-        """
-        Persist an alert event.
+        """Register a detection. Saves the centred raw-frame window to disk + DB.
+        In developer mode, also saves a labeled copy of the anchor frame."""
+        if job_id:
+            self._job_id = job_id
+        before_frames = self._before_snapshots.pop(frame_idx, None)
+        if before_frames is None:
+            before_frames = list(self._buf)
+        # Calls arrive in non-decreasing frame_idx order, so older snapshots are now dead -- drop them.
+        stale = [fidx for fidx in self._before_snapshots if fidx < frame_idx]
+        for fidx in stale:
+            del self._before_snapshots[fidx]
 
-        Saves the labeled frame as a JPEG under
-            storage/alerts/{job_id}/{kpi_name}_{frame_idx:06d}.jpg
-        and writes one row to the alerts SQLite table.
+        p = _PendingWindow(alert_type, frame_idx, confidence, extra,
+                           before_frames, self._after, boxes)
+        if self._after <= 0:
+            self._flush(p)
+        else:
+            self._pending.append(p)
 
-        Call this inside process_video() whenever an alert condition is met.
-        """
-        from pathlib import Path
-        from ..alert_db import insert_alert
-        from ..config import settings
+    def _finalize(self) -> None:
+        """Flush any windows still awaiting trailing frames (end of video)."""
+        for p in self._pending:
+            self._flush(p)
+        self._pending = []
 
-        labeled = frame.copy()
-        h, w = labeled.shape[:2]
-        scale = get_dynamic_scale(w, h)
-        font_scale = 0.5 * scale
-        thickness = max(1, int(round(1 * scale)))
-        box_thickness = max(1, int(round(2 * scale)))
-        pad = max(2, int(round(4 * scale)))
-        
-        _font = cv2.FONT_HERSHEY_SIMPLEX
-        for det in (detections or []):
-            color = det.color if det.color is not None else self.color
-            cv2.rectangle(labeled, (det.x1, det.y1), (det.x2, det.y2), color, box_thickness)
-            label = f"{det.label} {det.confidence:.2f}" if det.confidence < 1.0 else det.label
-            (tw, th), _ = cv2.getTextSize(label, _font, font_scale, thickness)
-            bg_y1 = max(0, det.y1 - th - (pad * 2))
-            cv2.rectangle(labeled, (det.x1, bg_y1), (det.x1 + tw + pad, det.y1), color, -1)
-            cv2.putText(
-                labeled, label,
-                (det.x1 + (pad//2), det.y1 - (pad//2) if det.y1 > 14 else det.y1 + th + (pad//2)),
-                _font, font_scale, (255, 255, 255), thickness,
+    def _flush(self, p: _PendingWindow) -> None:
+        if not self._job_id or not p.frames:
+            return
+        try:
+            alert_id = db.create_alert(
+                job_id=self._job_id,
+                kpi_name=self.name,
+                alert_type=p.alert_type,
+                frame_idx=p.anchor,
+                confidence=float(p.confidence),
+                extra=p.extra,
             )
+        except Exception:
+            logger.exception("[%s] failed to persist alert", self.name)
+            return
 
-        alert_dir = settings.UPLOAD_DIR.parent / "alerts" / job_id
-        alert_dir.mkdir(parents=True, exist_ok=True)
-        frame_path = alert_dir / f"{self.name}_{frame_idx:06d}.jpg"
-        cv2.imwrite(str(frame_path), labeled)
+        try:
+            from ..notifications import notify_alert
+            anchor_img = next(
+                (img for fidx, img in p.frames if fidx == p.anchor),
+                p.frames[0][1] if p.frames else None,
+            )
+            frame_bytes: Optional[bytes] = None
+            if anchor_img is not None:
+                labeled = anchor_img.copy()
+                if p.boxes:
+                    # Rectangles only, no text -- keeps confidence values out of the email.
+                    for b in p.boxes:
+                        x1, y1, x2, y2 = int(b[0]), int(b[1]), int(b[2]), int(b[3])
+                        color = b[5] if len(b) > 5 else (0, 0, 255)
+                        cv2.rectangle(labeled, (x1, y1), (x2, y2), color, 3)
+                ok, buf = cv2.imencode(".jpg", labeled, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if ok:
+                    frame_bytes = buf.tobytes()
+            notify_alert(
+                kpi_name=self.name,
+                display_name=getattr(self, "display_name", self.name),
+                alert_type=p.alert_type,
+                job_id=self._job_id,
+                alert_id=alert_id,
+                confidence=float(p.confidence),
+                frame_bytes=frame_bytes,
+            )
+        except Exception:
+            logger.exception("[%s] failed to dispatch email notification", self.name)
 
-        insert_alert(
-            job_id=job_id,
-            kpi_name=self.name,
-            alert_type=alert_type,
-            frame_idx=frame_idx,
-            confidence=confidence,
-            frame_path=str(frame_path),
-            extra=extra,
-        )
+        out_dir = settings.ALERTS_DIR / self._job_id / self.name / f"{alert_id:06d}"
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    @abstractmethod
+        dev_mode = settings.DEV_MODE and bool(p.boxes)
+
+        records: list[tuple[int, int, str, Optional[str]]] = []
+        for pos, (fidx, img) in enumerate(p.frames):
+            fpath = out_dir / f"{pos:02d}_frame{fidx:06d}.jpg"
+            cv2.imwrite(str(fpath), img)
+
+            labeled_path = None
+            if dev_mode and fidx == p.anchor:
+                labeled_img = img.copy()
+                _draw_boxes(labeled_img, p.boxes)
+                lpath = out_dir / f"labeled_frame{fidx:06d}.jpg"
+                cv2.imwrite(str(lpath), labeled_img)
+                labeled_path = str(lpath)
+
+            records.append((pos, fidx, str(fpath), labeled_path))
+
+        try:
+            db.add_alert_frames(alert_id, records)
+        except Exception:
+            logger.exception("[%s] failed to persist alert frames", self.name)
+
+    # ── split contract (shared single-decode pipeline) ────────────────────────
+
+    def setup(self, video_path: str, job_id: str = "") -> None:
+        """One-time setup before process_frame() starts receiving frames. Split-contract subclasses override this."""
+        if job_id:
+            self._job_id = job_id
+
+    def process_frame(self, frame_idx: int, frame: np.ndarray, job_id: str = "") -> None:
+        """Handle one decoded frame, called in increasing frame_idx order after setup()."""
+        raise NotImplementedError(f"{self.name} has not implemented the split KPI contract")
+
+    def finalize(self) -> KPIResult:
+        """Flush pending state and return the final KPIResult."""
+        raise NotImplementedError(f"{self.name} has not implemented the split KPI contract")
+
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
-        """
-        Read the video at video_path, run inference on every frame,
-        and return a KPIResult with one FrameAnnotation per frame.
-
-        Call self._save_alert(...) whenever an alert condition is detected.
-        """
+        """Standalone entry point: decodes the video itself, driving setup()/process_frame()/finalize()."""
+        self.setup(video_path, job_id)
+        cap = cv2.VideoCapture(video_path)
+        try:
+            frame_idx = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                self.process_frame(frame_idx, frame)
+                frame_idx += 1
+        finally:
+            cap.release()
+        return self.finalize()

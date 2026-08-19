@@ -1,29 +1,33 @@
 # Adding a new KPI
 
-Follow these 5 steps. Nothing outside `app/kpis/` and `config.json` needs to change.
+Follow these steps. Nothing outside `app/kpis/`, `config.json`, and `app/main.py`'s
+`_KPI_LABELS` needs to change.
 
 ---
 
 ## 1. Add your section to `config.json`
 
-Open `config.json` at the project root and add a block keyed by your **class name**:
+Add a block keyed by your **class name**:
 
 ```json
 {
     "YourKPI": {
         "enabled": true,
-        "model_path": "path\\to\\your\\model.pt",
-        "confidence": 0.5,
-        "alert_hold_seconds": 3.0
+        "model_path": "app/models/your-model.pt",
+        "confidence": 0.5
     }
 }
 ```
 
-| Key | Required | Description |
-|-----|----------|-------------|
-| `enabled` | no | Set to `false` to disable without removing code (default: `true`) |
-| `model_path` | yes | Relative path to your `.pt` weights file |
-| anything else | no | Any parameters your KPI needs — read them via `self._get()` |
+`enabled` is optional (defaults to `true`). Everything else is whatever
+parameters your detector needs — read them back with `self._get(key, default)`.
+
+If the KPI should be assignable to a camera, also add an entry to
+`kpi_registry` mapping a numeric catalog ID to your KPI's `name`:
+
+```json
+"kpi_registry": { "31": "your_kpi" }
+```
 
 ---
 
@@ -36,6 +40,11 @@ app/kpis/
     └── detector.py
 ```
 
+`__init__.py`:
+```python
+from .detector import YourKPI
+```
+
 ---
 
 ## 3. Implement `BaseKPI` in `detector.py`
@@ -43,34 +52,27 @@ app/kpis/
 ```python
 import cv2
 from ultralytics import YOLO
-from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
+from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
 
-# Default values — used when the key is absent from config.json
-_DEFAULT_CONF             = 0.5
-_DEFAULT_ALERT_HOLD_SECS  = 3.0
 
 @register_kpi
 class YourKPI(BaseKPI):
-    name = "your_kpi"             # unique snake_case identifier
-    display_name = "Your KPI"     # shown in the video overlay panel
-    color = (255, 128, 0)         # BGR box colour for this KPI
+    name = "your_kpi"
+    display_name = "Your KPI"
 
-    def process_video(self, video_path: str) -> KPIResult:
+    def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
         device = settings.DEVICE
         half   = settings.USE_HALF and device != "cpu"
 
-        # Read every parameter from config.json (second arg is the fallback)
-        model_path       = self._get("model_path",         "path/to/default.pt")
-        conf             = self._get("confidence",          _DEFAULT_CONF)
-        alert_hold_secs  = self._get("alert_hold_seconds", _DEFAULT_ALERT_HOLD_SECS)
+        model_path = self._get("model_path", "app/models/your-model.pt")
+        conf       = self._get("confidence", 0.5)
 
         model = YOLO(model_path)
         cap   = cv2.VideoCapture(video_path)
-        fps   = cap.get(cv2.CAP_PROP_FPS) or 25
 
-        frame_annotations = []
+        alert_events = 0
         frame_idx = 0
 
         while cap.isOpened():
@@ -78,80 +80,59 @@ class YourKPI(BaseKPI):
             if not ret:
                 break
 
-            results = model.predict(
-                frame, conf=conf, device=device, half=half, verbose=False
-            )
-            detections   = []
-            status_lines = []
+            self._observe(frame, frame_idx, job_id)  # every frame, before any skip/stride
 
-            for r in results:
-                for box in r.boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    label = r.names[int(box.cls[0])]
-                    conf_val = float(box.conf[0])
-                    detections.append(Detection(x1, y1, x2, y2, label, conf_val))
+            results = model.predict(frame, conf=conf, device=device, half=half, verbose=False)
+            for box in results[0].boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                label = results[0].names[int(box.cls[0])]
+                alert_events += 1
+                self._save_alert(
+                    "your_alert_type", job_id, frame_idx,
+                    confidence=float(box.conf[0]),
+                    extra={"label": label},
+                    boxes=[(x1, y1, x2, y2, label, (0, 255, 0))],
+                )
 
-            if detections:
-                status_lines.append(f"{len(detections)} detection(s)")
-
-            frame_annotations.append(FrameAnnotation(
-                frame_idx=frame_idx,
-                detections=detections,
-                status_lines=status_lines,
-            ))
             frame_idx += 1
 
         cap.release()
+        self._finalize()
 
-        return KPIResult(
-            kpi_name=self.name,
-            display_name=self.display_name,
-            color=self.color,
-            frame_annotations=frame_annotations,
-            summary={"total_frames": frame_idx},
-        )
+        return KPIResult(self.name, self.display_name, {
+            "alert_events": alert_events,
+            "total_frames": frame_idx,
+            "device": device,
+        })
 ```
 
 ---
 
-## 4. Export from `__init__.py`
+## 4. Register the import in `app/kpis/__init__.py`
 
 ```python
-# app/kpis/your_kpi/__init__.py
-from .detector import YourKPI  # noqa: F401
+from . import your_kpi
 ```
-
----
-
-## 5. Register the import in `app/kpis/__init__.py`
-
-Add one line:
-
-```python
-from . import your_kpi  # noqa: F401
-```
-
-## 6. Adding alerts in a new KPI
-Just call:
-```python
-self._save_alert(
-    frame, 
-    "your_alert_type", 
-    job_id, 
-    frame_idx,
-    confidence=0.9, 
-    extra={"any": "metadata"}
-)
-```
-
-That's it — the pipeline auto-discovers, configures, and runs your KPI on every uploaded video.
 
 ---
 
 ## Notes
 
-- **No code change needed for config**: edit `config.json` and call `POST /api/v1/config/reload` — changes take effect on the next job.
-- **Disable without removing**: set `"enabled": false` in `config.json`.
-- **Stateful models** (tracking, voting windows): keep all state inside `process_video`. Each call gets a fresh instance, so state never leaks between jobs.
-- **Per-detection colour**: set `Detection(..., color=(B, G, R))` to override the KPI-level colour for individual boxes.
-- **Status panel lines**: anything in `FrameAnnotation.status_lines` appears in the top-left overlay panel next to the KPI's display name.
+- **Sliding-window frame capture**: call `self._observe(frame, frame_idx, job_id)`
+  on every frame you read (even ones you skip via striding), then
+  `self._save_alert(...)` on a detection. The base class buffers
+  `ALERT_WINDOW_BEFORE` frames before the trigger and waits for
+  `ALERT_WINDOW_AFTER` frames after it, then writes the whole raw-frame clip
+  to `storage/alerts/{job_id}/{kpi_name}/{alert_id}/` and a row per alert/frame
+  to the DB. Call `self._finalize()` once after the read loop to flush any
+  window still waiting on trailing frames.
+- **`boxes` param on `_save_alert`**: optional. In `DEV_MODE=true`, the anchor
+  frame is additionally saved with these boxes drawn on it
+  (`labeled_frame{idx}.jpg`), for debugging.
+- **Hot-reload config**: edit `config.json` and call `POST /api/config/reload`,
+  or use `PUT /api/kpis/{name}/config` to persist changes from the admin UI —
+  changes take effect on the next job.
+- **Disable without removing**: set `"enabled": false` in `config.json`, or
+  `PUT /api/kpis/{name}/config` with `{"enabled": false}`.
+- **Stateful models** (tracking, voting windows): keep all state inside
+  `process_video` / instance attributes. Each job gets a fresh instance.

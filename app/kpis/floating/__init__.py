@@ -1,1 +1,1 @@
-from .detector import FloatingKPI 
+from .detector import FloatingKPI

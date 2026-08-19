@@ -12,29 +12,31 @@ def _default_device() -> str:
 
 
 class Settings(BaseSettings):
-
     UPLOAD_DIR: Path = BASE_DIR / "storage" / "uploads"
-    PROCESSED_DIR: Path = BASE_DIR / "storage" / "processed"
-
+    ALERTS_DIR: Path = BASE_DIR / "storage" / "alerts"
+    RECORDINGS_DIR: Path = BASE_DIR / "storage" / "recordings"
+    DATABASE_URL: str = f"sqlite:///{(BASE_DIR / 'storage' / 'app.db').as_posix()}"
     DEVICE: str = _default_device()
-
-    # Use FP16 on GPU for ~2× faster inference; ignored on CPU.
     USE_HALF: bool = True
-
-    # Model paths – set these in .env (relative paths resolved from project root)
-    FIRE_SMOKE_MODEL_PATH: Optional[Path] = None
-    MOBILE_PERSON_MODEL_PATH: Optional[Path] = None
-    MOBILE_PHONE_MODEL_PATH: Optional[Path] = None
-
-    # Maximum threads used to run KPIs in parallel.
+    DEV_MODE: bool = False
+    ALERT_WINDOW_BEFORE: int = 4
+    ALERT_WINDOW_AFTER: int = 3
     MAX_WORKERS: int = 4
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    # IP camera continuous recording
+    STREAM_CLIP_SECONDS: int = 120
+    STREAM_RECONNECT_DELAY: float = 5.0
+    STREAM_FRAME_THINNING_ENABLED: bool = True
+    FRAME_THINNING_TARGET_FPS: float = 12.0
 
-    @field_validator(
-        "FIRE_SMOKE_MODEL_PATH", "MOBILE_PERSON_MODEL_PATH", "MOBILE_PHONE_MODEL_PATH",
-        mode="before",
-    )
+    FIRE_SMOKE_MODEL_PATH: Optional[Path] = None
+
+    # Symmetric key for encrypting the SMTP password at rest (see .env.example)
+    EMAIL_ENCRYPTION_KEY: Optional[str] = None
+
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+    @field_validator("FIRE_SMOKE_MODEL_PATH", mode="before")
     @classmethod
     def resolve_path(cls, v: Optional[str]) -> Optional[Path]:
         if v is None:

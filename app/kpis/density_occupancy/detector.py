@@ -1,9 +1,8 @@
 import cv2
-import numpy as np
 from shapely.geometry import Point, Polygon
 from ultralytics import YOLO
 
-from ..base import BaseKPI, Detection, FrameAnnotation, KPIResult
+from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
 from ...config import settings
 
@@ -27,13 +26,9 @@ COLOR_OUT_ZONE = (0, 255, 0)    # BGR green — person outside the zone
 
 
 def _density_level(density: float, thresh: dict) -> str:
-    """Map a density value to a human-readable level string."""
-    if density < thresh["low"]:
-        return "LOW"
-    elif density < thresh["medium"]:
-        return "MEDIUM"
-    elif density < thresh["high"]:
-        return "HIGH"
+    if density < thresh["low"]:    return "LOW"
+    if density < thresh["medium"]: return "MEDIUM"
+    if density < thresh["high"]:   return "HIGH"
     return "CRITICAL"
 
 
@@ -87,9 +82,8 @@ def _point_to_realworld(px: float, py: float, H_mat: np.ndarray):
 
 @register_kpi
 class DensityOccupancyKPI(BaseKPI):
-    name         = "density_occupancy"      # unique snake_case identifier
-    display_name = "Density & Occupancy"    # shown in the video overlay panel
-    color        = COLOR_IN_ZONE            # BGR — red boxes for zone-occupants
+    name         = "density_occupancy"
+    display_name = "Density & Occupancy"
 
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
         device = settings.DEVICE
@@ -112,6 +106,10 @@ class DensityOccupancyKPI(BaseKPI):
         zone_points_raw = self._get("zone_points", None)
 
         model = YOLO(model_path)
+        cap   = cv2.VideoCapture(video_path)
+        fps   = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        W     = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        H     = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 25
@@ -120,7 +118,7 @@ class DensityOccupancyKPI(BaseKPI):
 
         # ── Build zone polygon & homography ───────────────────────────────────
         if zone_points_raw and len(zone_points_raw) >= 3:
-            zone_pixel_pts = [tuple(p) for p in zone_points_raw]
+            zone_pts = [tuple(p) for p in zone_points_raw]
         else:
             zone_pixel_pts = [(0, 0), (W, 0), (W, H), (0, H)]   # full frame
 
@@ -158,7 +156,8 @@ class DensityOccupancyKPI(BaseKPI):
             if not ret:
                 break
 
-            # ── Run tracker ────────────────────────────────────────────────────
+            self._observe(frame, frame_idx, job_id)
+
             results = model.track(
                 source=frame,
                 persist=True,
@@ -171,25 +170,7 @@ class DensityOccupancyKPI(BaseKPI):
                 verbose=False,
             )
 
-            # Guard: model.track() can return None or an empty list
             if not results:
-                frame_annotations.append(FrameAnnotation(
-                    frame_idx=frame_idx,
-                    detections=[],
-                    status_lines=[
-                        f"Zone count:   0",
-                        f"Foot traffic: {total_footfall}",
-                    ],
-                    extra={
-                        "density_level":   d_level,
-                        "alert_active":    alert_active,
-                        "zone_pixel_pts":  zone_pixel_pts,
-                        "people_in_zone":  0,
-                        "occupancy_count": occupancy_count,
-                        "total_footfall":  total_footfall,
-                        "density":         0.0,
-                    },
-                ))
                 frame_idx += 1
                 continue
 
@@ -198,9 +179,7 @@ class DensityOccupancyKPI(BaseKPI):
             detections:    list[Detection] = []
             status_lines:  list[str]       = []
             people_in_zone = 0
-            boxes          = result.boxes
 
-            # Guard: boxes or track IDs may be absent on frames with no detections
             if boxes is not None and boxes.id is not None:
                 track_ids = boxes.id.int().cpu().tolist()
                 xyxy_list = boxes.xyxy.int().cpu().tolist()
@@ -267,27 +246,20 @@ class DensityOccupancyKPI(BaseKPI):
 
             # ── Metrics (computed every frame, outside the boxes guard) ────────
             density         = people_in_zone / max(zone_sqft, 1e-6)
-            occupancy_count = len(ids_inside_zone)
-            total_footfall  = len(ids_ever_seen)
+            occupancy_count = len(ids_inside)
+            total_footfall  = len(ids_ever)
             d_level         = _density_level(density, thresh)
 
-            # ── Hysteresis-based alert ─────────────────────────────────────────
             breach = (density >= thresh["high"]) or (occupancy_count > max_occupancy)
-            if breach:
-                consecutive_alert += 1
-            else:
-                consecutive_alert = max(0, consecutive_alert - 1)
+            consecutive_alert = consecutive_alert + 1 if breach else max(0, consecutive_alert - 1)
 
             prev_alert   = alert_active
             alert_active = consecutive_alert >= alert_hold_frames
 
-            # Fire snapshot on the first frame of a new alert (LOW → HIGH only)
-            if alert_active and not prev_alert and job_id:
+            if alert_active and not prev_alert:
+                alert_events += 1
                 self._save_alert(
-                    frame,
-                    "density_occupancy_breach",
-                    job_id,
-                    frame_idx,
+                    "density_occupancy_breach", job_id, frame_idx,
                     extra={
                         "density_level":   d_level,
                         "density":         round(density, 6),
@@ -298,29 +270,6 @@ class DensityOccupancyKPI(BaseKPI):
                     detections=list(detections),
                 )
 
-            # ── HUD status lines ───────────────────────────────────────────────
-            status_lines.append(f"Zone count:  {people_in_zone}")
-            status_lines.append(f"Density:     {density:.4f} ppsf")
-            status_lines.append(f"Occupancy:   {occupancy_count}")
-            status_lines.append(f"Foot traffic:{total_footfall}")
-            status_lines.append(f"Level:       {d_level}")
-            if alert_active:
-                status_lines.append("⚠ ALERT: DENSITY / OCCUPANCY BREACH")
-
-            frame_annotations.append(FrameAnnotation(
-                frame_idx=frame_idx,
-                detections=detections,
-                status_lines=status_lines,
-                extra={
-                    "density_level":   d_level,
-                    "alert_active":    alert_active,
-                    "zone_pixel_pts":  zone_pixel_pts,
-                    "people_in_zone":  people_in_zone,
-                    "occupancy_count": occupancy_count,
-                    "total_footfall":  total_footfall,
-                    "density":         round(density, 6),
-                },
-            ))
             frame_idx += 1
 
         cap.release()

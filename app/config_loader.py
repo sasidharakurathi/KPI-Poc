@@ -1,7 +1,7 @@
 import json
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 _CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
@@ -49,22 +49,29 @@ def get_kpi_param(kpi_class_name: str, key: str, default: Any = None) -> Any:
     return get_kpi_config(kpi_class_name).get(key, default)
 
 
+def update_kpi_config(kpi_class_name: str, updates: dict) -> dict:
+    """Merge updates into config.json[kpi_class_name], persist to disk, and reload."""
+    global _cache
+    with _lock:
+        cfg = _load_from_disk()
+        block = {**cfg.get(kpi_class_name, {}), **updates}
+        cfg[kpi_class_name] = block
+        with open(_CONFIG_PATH, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh, indent=4)
+        _cache = cfg
+    return dict(block)
+
+
 # ── KPI registry (numeric ID → KPI name) ─────────────────────────────────────
 
 def get_kpi_registry() -> dict[str, str]:
-    """
-    Returns the kpi_registry mapping: {str(kpi_id): kpi_name}.
-    e.g. {"7": "fire_smoke", "17": "mobile_usage"}
-    """
+    """The kpi_registry mapping: {str(kpi_id): kpi_name}."""
     _ensure_loaded()
     return dict(_cache.get("kpi_registry", {}))
 
 
 def resolve_kpi_names(kpi_ids: list[int]) -> list[str]:
-    """
-    Convert a list of numeric KPI IDs to implemented KPI names.
-    IDs without a mapping in kpi_registry are silently skipped.
-    """
+    """Numeric KPI IDs to implemented KPI names; unmapped IDs are silently skipped."""
     registry = get_kpi_registry()
     seen, names = set(), []
     for kid in kpi_ids:
@@ -75,25 +82,10 @@ def resolve_kpi_names(kpi_ids: list[int]) -> list[str]:
     return names
 
 
-# ── Camera registry ───────────────────────────────────────────────────────────
+# ── Camera seed data ─────────────────────────────────────────────────────────
+# Cameras themselves live in the DB (see app/db.py Camera table); this dict is
+# only used once, at startup, to seed that table if it's empty.
 
 def get_cameras() -> dict[str, dict]:
-    """Return the full cameras dict keyed by camera ID."""
     _ensure_loaded()
     return dict(_cache.get("cameras", {}))
-
-
-def get_camera(camera_id: str) -> Optional[dict]:
-    """Return a single camera's config or None if not found."""
-    return get_cameras().get(camera_id)
-
-
-def get_camera_kpi_names(camera_id: str) -> list[str]:
-    """
-    Return the list of implemented KPI names for a given camera.
-    Unimplemented KPI IDs are skipped automatically.
-    """
-    cam = get_camera(camera_id)
-    if not cam:
-        return []
-    return resolve_kpi_names(cam.get("kpi_ids", []))
