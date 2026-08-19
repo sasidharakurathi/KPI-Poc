@@ -1,0 +1,68 @@
+# Occupancy + Dwell prototype config. Tune here — no code changes needed.
+# One config = one camera. Mirror pose_prototype/config.yaml conventions.
+
+camera_id: cam_demo
+
+detector:
+  # Detection MODE decides how we find people (see detector.py):
+  #   body : full-body COCO person (class 0)  -> oblique / high-mount / eye-level
+  #   head : head boxes (fine-tuned model)    -> top-down / overhead / crowded
+  # Head model (person_head.pt) is trained in Phase 2; until then use `body`.
+  mode: body
+
+  # Weights are tried in order; first that loads wins (same pattern as pose_backbone).
+  weights_preference:
+    body: ["yolo26m.pt", "yolo26n.pt", "yolo11n.pt", "yolov8n.pt"]
+    head: ["person_head.pt", "yolo26m.pt"]   # falls back to body model until head model exists
+
+  conf: 0.35          # detection confidence (build-guide start point; sweep 0.25-0.5)
+  iou: 0.50           # NMS IoU (raise a touch for overlapping people in crowds)
+  imgsz: 640          # inference size; raise to 768/960 only if small/distant people are missed
+  half: true          # FP16 inference on GPU (ignored on CPU)
+  max_det: 300        # allow dense scenes
+
+  # Fisheye dewarp (Phase 6). Off until per-camera intrinsics are calibrated.
+  fisheye:
+    enabled: false
+    # camera_matrix: [[fx,0,cx],[0,fy,cy],[0,0,1]]
+    # dist_coeffs:   [k1, k2, k3, k4]
+    # balance: 0.0   # 0 = crop to valid pixels, 1 = keep all (more distortion at edges)
+
+tracker:
+  type: bytetrack     # bytetrack (fast, default) | botsort (ReID, better IDs under occlusion)
+  track_activation_threshold: 0.25
+  lost_track_buffer: 30            # frames a lost track survives before its ID is freed
+  minimum_matching_threshold: 0.80
+  # frame_rate is taken from the video/stream at runtime.
+
+# Cadence: occupancy is slow-changing, so we can run the detector on every Nth frame
+# and let the tracker carry IDs between. 1 = detect every frame. 2-3 = big speedup.
+frame_stride: 1
+
+# Zones: list of named polygons. Occupancy + dwell are computed per zone.
+# Polygon points are pixel coords of the INFERENCE frame (draw with zone_drawer.py).
+# anchor: which point of a person box must be inside the zone to count them.
+#   bottom_center = feet  (use for body mode / oblique)   center = use for head mode / top-down
+zones:
+  - name: area_1
+    # Demo polygon for test_videos/people_walking.avi (768x576). Redraw per camera
+    # with zone_drawer.py.
+    polygon: [[80, 120], [690, 120], [690, 540], [80, 540]]
+    anchor: bottom_center
+    dwell_alert_secs: 8.0    # per-person dwell alert threshold (KPI #27); 0 disables dwell alerts
+    occupancy_alert: 3       # alert when live occupancy exceeds this (overcrowding); 0 disables
+
+# Membership debounce: a person must be inside for this many consecutive detect-frames
+# before they count toward occupancy (kills boundary flicker). 1 = no debounce.
+occupancy_persist_frames: 3
+
+display:
+  boxes: true
+  track_labels: true
+  dwell_labels: true
+  zone_fill: true
+
+event:
+  persist_frames: 3     # dwell/overcrowd alert must persist this many detect-frames
+  cooldown_secs: 30.0   # min seconds before the same (zone, track) re-alerts
+  gap_tol: 5            # tolerate short detection dropouts before resetting a streak

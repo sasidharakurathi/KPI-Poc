@@ -1,0 +1,69 @@
+# Staff Absence prototype config. Tune here — no code changes needed.
+# One config = one camera. Mirrors occupancy_prototype/config.yaml conventions.
+
+camera_id: cam_demo
+
+detector:
+  # Detection MODE decides how we find people (see detector.py):
+  #   body : full-body COCO person (class 0)  -> oblique / high-mount / eye-level
+  #   head : head boxes (fine-tuned model)    -> top-down / overhead / crowded
+  mode: body
+
+  weights_preference:
+    body: ["yolo26m.pt", "yolo26n.pt", "yolo11n.pt", "yolov8n.pt"]
+    head: ["person_head.pt", "yolo26m.pt"]   # falls back to body model until head model exists
+
+  conf: 0.35
+  iou: 0.50
+  imgsz: 640
+  half: true
+  max_det: 300
+
+  fisheye:
+    enabled: false
+
+tracker:
+  type: bytetrack
+  track_activation_threshold: 0.25
+  lost_track_buffer: 30
+  minimum_matching_threshold: 0.80
+
+frame_stride: 1
+
+# Zones: one per guard post. Polygon points are pixel coords of the INFERENCE frame
+# (draw with zone_drawer.py). anchor: bottom_center for body mode / oblique cameras.
+zones:
+  - name: guard_post_1
+    # Demo polygon for test_videos/people_walking.avi (768x576). Redraw per camera
+    # with zone_drawer.py.
+    # polygon: [[80, 120], [690, 120], [690, 540], [80, 540]]
+    # polygon: [[3, 241], [166, 263], [205, 268], [309, 298], [765, 495], [765, 572], [1, 571]]
+    polygon: [[18, 188], [0, 196], [0, 236], [145, 261], [151, 256], [168, 259], [206, 212]]
+    anchor: bottom_center
+    absence_alert_secs: 15     # continuous-empty threshold before alerting; 0 disables
+    schedule: null              # e.g. "06:00-18:00"; null = always active (demo default)
+
+# Membership debounce shared with the occupancy family: a person must be inside for this
+# many consecutive detect-frames before they count as "present" (kills boundary flicker).
+occupancy_persist_frames: 3
+
+display:
+  boxes: true
+  track_labels: true
+  zone_fill: true
+  presence_label: true
+
+event:
+  persist_frames: 3     # absence alert must persist this many detect-frames before firing
+  cooldown_secs: 30.0    # min seconds before the same (zone) re-alerts
+  gap_tol: 5             # tolerate short detection dropouts before resetting a streak
+
+# Guard Presence (KPI #19) — currently a placeholder (see guard_presence.py). Swap
+# `mode` here once the teammate's real model exists (e.g. "uniform_classifier", "reid").
+guard_presence:
+  mode: person_detection
+
+# Snapshot evidence: save an annotated frame under alerts/ whenever an absence [EVENT] fires.
+alerts:
+  save_snapshot: true
+  dir: alerts
