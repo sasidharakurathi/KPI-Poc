@@ -5,6 +5,7 @@
         "6": "ppe",
         "7": "fire_smoke",
         "11": "people_count",
+        "14": "Uniform_detection",
         "15": "object_detection",
         "17": "mobile_usage",
         "20": "falling_pose",
@@ -690,5 +691,26 @@
         "model_path": "app/models/vehicle-detection-speed.pt",
         "confidence": 0.5,
         "speed_limit_kmh": 25.0
-    }
+    },
+  "UniformKPI": {
+    "enabled": true,
+    "worker_model_path": "app/models/uniform.pt",
+    "person_model_path": "app/models/person yolo26s.pt",
+    "confidence": 0.25,
+    "margin": 0.10,
+    "match_iou_threshold": 0.30,
+    "alarm_seconds": 2.0,
+    "alert_hold_seconds": 4.0,
+    "track_ttl_seconds": 3.0,
+    "orange_h_min": 5,
+    "orange_h_max": 22,
+    "orange_s_min": 100,
+    "orange_v_min": 50,
+    "strap_v_min": 190,
+    "strap_s_max": 60,
+    "strap_min_frac": 0.025,
+    "torso_frac": 0.40,
+    "lower_frac": 0.75,
+    "smooth_window_secs": 0.5
+  }
 }
