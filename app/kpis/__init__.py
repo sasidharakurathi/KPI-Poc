@@ -9,6 +9,8 @@ from . import falling_pose
 from . import ANPR_LPR
 from . import carton_box_detection
 from . import vehicle_detection_speed
+from . import Uniform_detection
+
 
 from .registry import get_registered_kpis, get_registry, list_registered_names, register_kpi
 
