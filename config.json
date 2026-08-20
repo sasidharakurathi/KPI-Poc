@@ -602,6 +602,20 @@
         "infer_imgsz": 640
     },
     "DensityOccupancyKPI": {
+    "model_path": "app/models/density-occupancy.pt",
+    "confidence": 0.35,
+    "iou_threshold": 0.50,
+    "delay_ms": 33,
+    "zone_sqft": 500.0,
+    "max_occupancy": 50,
+    "alert_hold_frames": 4,
+    "density_thresholds": {
+        "low":    0.02,
+        "medium": 0.05,
+        "high":   0.10
+    },
+    "save_csv": true,
+    "csv_path": "logs/density_occupancy_log.csv"
         "enabled": false,
         "model_path": "app/models/density-occupancy.pt",
         "confidence": 0.35,
