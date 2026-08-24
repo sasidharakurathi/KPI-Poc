@@ -2,8 +2,9 @@
 on, and per-camera-per-KPI polygon storage for KPIs that need a zone
 (BaseKPI.requires_zone) - occupancy_dwell, staff_absence, density_occupancy.
 
-  GET  /api/cameras/{camera_id}/frame   -> get_camera_frame
-  POST /api/cameras/{camera_id}/labels  -> save_camera_labels
+  GET  /api/cameras/{camera_id}/frame    -> get_camera_frame
+  GET  /api/cameras/{camera_id}/labels   -> list_camera_labels
+  POST /api/cameras/{camera_id}/labels   -> save_camera_labels
 
 The frame is grabbed live over the camera's own RTSP connection (same URL
 builder streaming/recording already uses - app.stream_recorder.build_stream_url)
@@ -26,7 +27,8 @@ from app.db.models.camera import Camera
 from app.db.models.kpi_zone_label import KpiZoneLabel
 from app.kpis import get_registry
 from app.schemas.kpi_zone_label import (
-    CameraFrameResponse, SaveCameraLabelsRequest, SaveCameraLabelsResponse, SavedKpiZoneLabel,
+    CameraFrameResponse, CameraKpiLabelInfo, CameraLabelsResponse,
+    SaveCameraLabelsRequest, SaveCameraLabelsResponse, SavedKpiZoneLabel,
 )
 from app.stream_recorder import build_stream_url
 
@@ -76,10 +78,25 @@ def _grab_live_frame(cam: Camera):
     finally:
         cap.release()
 
+def _grab_sample_frame():
+    try:
+
+        frame = cv2.imread(r"C:\Users\Administrator\Downloads\KPI-Poc\storage\alerts\39ab96b6-d2a5-4ee4-a579-c24267e62801\smoking\000683\06_frame000023.jpg")
+        if frame is None:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                f"Could not read a frame from camera stream.",
+            )
+        return frame
+    finally:
+        # cap.release()
+        pass
+
 
 def get_camera_frame(db: Session, org_id: Optional[int], camera_id: str) -> CameraFrameResponse:
     cam = _get_camera_or_404(db, org_id, camera_id)
     frame = _grab_live_frame(cam)
+    # frame = _grab_sample_frame()
     h, w = frame.shape[:2]
 
     ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
@@ -88,6 +105,30 @@ def get_camera_frame(db: Session, org_id: Optional[int], camera_id: str) -> Came
     frame_b64 = base64.b64encode(buf.tobytes()).decode("ascii")
 
     return CameraFrameResponse(camera_id=camera_id, frame_base64=frame_b64, frame_width=w, frame_height=h)
+
+
+def list_camera_labels(db: Session, org_id: Optional[int], camera_id: str) -> CameraLabelsResponse:
+    """This camera's assigned KPIs, flagging which need a drawn zone
+    (requires_zone) and returning any polygon already saved for them - no
+    live camera connection needed, unlike get_camera_frame."""
+    cam = _get_camera_or_404(db, org_id, camera_id)
+    kpi_names = _assigned_kpi_names(cam)
+    registry = get_registry()
+    existing = {
+        row.kpi_name: row
+        for row in db.exec(select(KpiZoneLabel).where(KpiZoneLabel.camera_id == camera_id)).all()
+    }
+
+    kpis = [
+        CameraKpiLabelInfo(
+            kpi_name=name,
+            display_name=registry[name].display_name if name in registry else name,
+            requires_zone=bool(getattr(registry.get(name), "requires_zone", False)),
+            points=existing[name].points if name in existing else None,
+        )
+        for name in kpi_names
+    ]
+    return CameraLabelsResponse(camera_id=camera_id, kpis=kpis)
 
 
 def save_camera_labels(

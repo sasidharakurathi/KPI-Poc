@@ -4,6 +4,8 @@ density_occupancy.
 
   GET  /api/cameras/{camera_id}/frame    A live frame (base64) from this
        camera, to draw a zone polygon on.
+  GET  /api/cameras/{camera_id}/labels   This camera's assigned KPIs,
+       flagging which need a drawn zone, with any polygon already saved.
   POST /api/cameras/{camera_id}/labels   Save/update one or more KPIs'
        zone polygons for this camera.
 
@@ -14,7 +16,9 @@ detection zone is camera setup, not a separate module.
 from fastapi import APIRouter, Depends
 
 from app.core.dependencies import DbSession, require_permission
-from app.schemas.kpi_zone_label import CameraFrameResponse, SaveCameraLabelsRequest, SaveCameraLabelsResponse
+from app.schemas.kpi_zone_label import (
+    CameraFrameResponse, CameraLabelsResponse, SaveCameraLabelsRequest, SaveCameraLabelsResponse,
+)
 from app.services import kpi_label_service
 
 router = APIRouter(prefix="/api/cameras", tags=["kpi-labels"])
@@ -27,6 +31,15 @@ async def get_camera_frame(
     user: dict = Depends(require_permission("cameras", "view")),
 ):
     return kpi_label_service.get_camera_frame(db, user.get("org_id"), camera_id)
+
+
+@router.get("/{camera_id}/labels", response_model=CameraLabelsResponse)
+async def list_labels(
+    camera_id: str,
+    db: DbSession,
+    user: dict = Depends(require_permission("cameras", "view")),
+):
+    return kpi_label_service.list_camera_labels(db, user.get("org_id"), camera_id)
 
 
 @router.post("/{camera_id}/labels", response_model=SaveCameraLabelsResponse)

@@ -1,5 +1,7 @@
 """Request/response shapes for the zone-label drawing endpoints
 (app.api.v1.endpoints.kpi_labels / app.services.kpi_label_service)."""
+from typing import Optional
+
 from pydantic import BaseModel, field_validator
 
 
@@ -8,6 +10,21 @@ class CameraFrameResponse(BaseModel):
     frame_base64: str
     frame_width: int
     frame_height: int
+
+
+class CameraKpiLabelInfo(BaseModel):
+    """One of this camera's assigned KPIs - display_name/requires_zone
+    resolve live from the detector registry, points from any KpiZoneLabel
+    already saved for (camera, kpi_name)."""
+    kpi_name: str
+    display_name: str
+    requires_zone: bool
+    points: Optional[list[list[float]]] = None
+
+
+class CameraLabelsResponse(BaseModel):
+    camera_id: str
+    kpis: list[CameraKpiLabelInfo]
 
 
 class KpiZoneLabelIn(BaseModel):
