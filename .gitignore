@@ -44,4 +44,5 @@ storage/
 .claude
 logs/
 vision-ai-frontend/
+vision-ai-development-frontend/
 docs/

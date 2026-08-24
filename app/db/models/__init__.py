@@ -9,6 +9,7 @@ from .configuration import Configuration
 from .email_log import EmailLog
 from .audit import AuditLog
 from .kpi_configuration import KPIConfiguration
+from .kpi_zone_label import KpiZoneLabel
 
 __all__ = [
     "EmailServer", "KpiModelCatalog", "Priority", "Timezone", "Zone",
@@ -20,5 +21,6 @@ __all__ = [
     "Configuration",
     "EmailLog",
     "AuditLog",
-    "KPIConfiguration"
+    "KPIConfiguration",
+    "KpiZoneLabel",
 ]

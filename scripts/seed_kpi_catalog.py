@@ -47,6 +47,8 @@ _METADATA: dict[str, tuple[str, str]] = {
     "object_detection":("operations", "Detects and counts cartons/boxes in the frame."),
     "density_occupancy": ("operations", "Monitors zone density and occupancy levels."),
     "people_count":    ("operations", "Counts people present in the camera's field of view."),
+    "occupancy_dwell": ("operations", "Tracks live occupancy and per-person dwell time within a drawn zone."),
+    "staff_absence":   ("security",   "Alerts when a guard post has been continuously empty during its scheduled shift."),
 }
 _DEFAULT_METADATA = ("operations", "")
 

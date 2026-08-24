@@ -59,6 +59,7 @@ class BaseKPI(ABC):
 
     name: str
     display_name: str
+    requires_zone: bool = False  # needs a per-camera zone polygon (see ..zone_labels)
 
     def __init__(self) -> None:
         from ..config_loader import get_kpi_config

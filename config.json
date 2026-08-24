@@ -5,10 +5,12 @@
         "6": "ppe",
         "7": "fire_smoke",
         "11": "people_count",
+        "13": "staff_absence",
         "15": "object_detection",
         "17": "mobile_usage",
         "20": "falling_pose",
         "24": "density_occupancy",
+        "27": "occupancy_dwell",
         "29": "smoking",
         "30": "floating"
     },
@@ -677,5 +679,31 @@
         "model_path": "app/models/vehicle-detection-speed.pt",
         "confidence": 0.5,
         "speed_limit_kmh": 25.0
+    },
+    "OccupancyDwellKPI": {
+        "enabled": false,
+        "model_path": "app/models/yolo26m.pt",
+        "confidence": 0.35,
+        "iou_threshold": 0.5,
+        "infer_imgsz": 640,
+        "frame_stride": 2,
+        "occupancy_persist_frames": 3,
+        "miss_grace_frames": 5,
+        "dwell_alert_secs": 8.0,
+        "occupancy_alert": 0,
+        "alert_cooldown_secs": 30.0
+    },
+    "StaffAbsenceKPI": {
+        "enabled": false,
+        "model_path": "app/models/yolo26m.pt",
+        "confidence": 0.35,
+        "iou_threshold": 0.5,
+        "infer_imgsz": 640,
+        "frame_stride": 2,
+        "occupancy_persist_frames": 3,
+        "miss_grace_frames": 5,
+        "absence_alert_secs": 15.0,
+        "schedule": null,
+        "alert_cooldown_secs": 30.0
     }
 }

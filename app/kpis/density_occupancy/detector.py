@@ -4,6 +4,7 @@ from ultralytics import YOLO
 
 from ..base import BaseKPI, KPIResult
 from ..registry import register_kpi
+from ..zone_labels import get_camera_zone_points
 from ...config import settings
 
 _DEFAULT_THRESH = {"low": 0.02, "medium": 0.05, "high": 0.10}
@@ -20,6 +21,7 @@ def _density_level(density: float, thresh: dict) -> str:
 class DensityOccupancyKPI(BaseKPI):
     name         = "density_occupancy"
     display_name = "Density & Occupancy"
+    requires_zone = True
 
     def process_video(self, video_path: str, job_id: str = "") -> KPIResult:
         device = settings.DEVICE
@@ -32,7 +34,7 @@ class DensityOccupancyKPI(BaseKPI):
         max_occupancy     = self._get("max_occupancy",       50)
         alert_hold_frames = self._get("alert_hold_frames",   4)
         thresh            = self._get("density_thresholds",  _DEFAULT_THRESH)
-        zone_points_raw   = self._get("zone_points",         None)
+        zone_points_raw   = get_camera_zone_points(job_id, self.name) or self._get("zone_points", None)
 
         model = YOLO(model_path)
         cap   = cv2.VideoCapture(video_path)

@@ -136,3 +136,12 @@ from . import your_kpi
   `PUT /api/kpis/{name}/config` with `{"enabled": false}`.
 - **Stateful models** (tracking, voting windows): keep all state inside
   `process_video` / instance attributes. Each job gets a fresh instance.
+- **Zone-based KPIs**: if your detector needs a drawn polygon (a guard post,
+  a counting area), set `requires_zone = True` on the class. This makes it
+  show up (per-camera) from `GET /api/cameras/{camera_id}/label-frame`, and
+  operators can draw + save a polygon via `POST /api/cameras/{camera_id}/labels`
+  (`app.services.kpi_label_service`, stored in `KpiZoneLabel`). Read it back
+  at runtime with `from ..zone_labels import get_camera_zone_points;
+  get_camera_zone_points(job_id, self.name)` - falls back to `None` if this
+  camera has no saved polygon yet, so always have a sensible default (e.g.
+  the full frame - see `occupancy_dwell`/`staff_absence`/`density_occupancy`).

@@ -10,6 +10,7 @@ from .endpoints import (
     email_logs,
     email_servers,
     health,
+    kpi_labels,
     kpi_models,
     kpis,
     organization,
@@ -28,6 +29,7 @@ api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(kpis.router)
 api_router.include_router(cameras.router)
+api_router.include_router(kpi_labels.router)
 api_router.include_router(alerts.router)
 api_router.include_router(videos.router)
 api_router.include_router(settings.router)
