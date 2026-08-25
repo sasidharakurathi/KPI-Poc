@@ -36,5 +36,8 @@ class Camera(SQLModel, table=True):
     
     kpi_model_ids: list = Field(default_factory=list, sa_column=Column(_JSON))
 
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

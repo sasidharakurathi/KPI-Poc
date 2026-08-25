@@ -553,7 +553,7 @@
         "infer_imgsz": 640
     },
     "FireSmokeKPI": {
-        "enabled": false,
+        "enabled": true,
         "model_path": "app/models/fire-smoke.pt",
         "smoke_confidence": 0.28,
         "fire_confidence": 0.5,

@@ -60,7 +60,7 @@ def test_camera_mutations_log_audit_entries(client, owner):
 
     resp = client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-AUD1", "name": "Audit Cam", "zone_id": str(zone_id), "priority_id": str(priority_id)},
+        json={"camera_id": "CAM-AUD1", "name": "Audit Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": str(zone_id), "priority_id": str(priority_id)},
     )
     assert resp.status_code == 201, resp.text
 
@@ -143,7 +143,7 @@ def test_audit_filter_by_action(client, owner):
     ).json()["id"]
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-FILT1", "name": "Filter Cam", "zone_id": str(zone_id), "priority_id": str(priority_id)},
+        json={"camera_id": "CAM-FILT1", "name": "Filter Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": str(zone_id), "priority_id": str(priority_id)},
     )
 
     entries = _entries_for(client, owner["headers"], entity="camera", action="create")

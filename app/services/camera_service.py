@@ -26,6 +26,7 @@ from app.kpis import get_registry, list_registered_names
 from app.schemas.camera import (
     CameraCreate, CameraKPIDetail, CameraListItem,
     CameraListResponse, CameraResponse, CameraUpdate,
+    CamerasByZoneResponse, CameraStatusItem, ZoneCameraStatusGroup,
 )
 from app.services import audit_service
 from app.stream_recorder import stream_recorder_manager
@@ -127,6 +128,8 @@ def _to_camera_response(db: Session, cam: Camera) -> CameraResponse:
     return CameraResponse(
         camera_id=cam.camera_id,
         name=cam.name,
+        latitude=cam.latitude,
+        longitude=cam.longitude,
         zone_id=str(cam.zone_id) if cam.zone_id is not None else None,
         zone_name=zone.name if zone else None,
         priority_id=str(cam.priority_id) if cam.priority_id is not None else None,
@@ -162,6 +165,8 @@ def _to_camera_list_item(
     return CameraListItem(
         camera_id=cam.camera_id,
         name=cam.name,
+        latitude=cam.latitude,
+        longitude=cam.longitude,
         zone_id=str(cam.zone_id) if cam.zone_id is not None else None,
         zone_name=zone.name if zone else None,
         priority_id=str(cam.priority_id) if cam.priority_id is not None else None,
@@ -194,6 +199,35 @@ def list_cameras(db: Session, org_id: Optional[int]) -> CameraListResponse:
     return CameraListResponse(count=len(items), cameras=items)
 
 
+def list_cameras_by_zone(db: Session, org_id: Optional[int]) -> CamerasByZoneResponse:
+    """Every camera's camera_id + enabled status, grouped by zone. Cameras
+    with no zone assigned are grouped under a synthetic "Unassigned" bucket
+    (zone_id=None) rather than dropped - matching _to_camera_response's own
+    zone_name=None handling for an unassigned camera."""
+    cams = db.exec(select(Camera).where(Camera.org_id == org_id).order_by(Camera.camera_id)).all()
+
+    zone_ids = {c.zone_id for c in cams if c.zone_id is not None}
+    zones_by_id = {z.id: z for z in db.exec(select(Zone).where(Zone.id.in_(zone_ids))).all()} if zone_ids else {}
+
+    groups: dict[Optional[int], list[Camera]] = defaultdict(list)
+    for cam in cams:
+        groups[cam.zone_id].append(cam)
+
+    result = [
+        ZoneCameraStatusGroup(
+            zone_id=str(zone_id) if zone_id is not None else None,
+            zone_name=zones_by_id[zone_id].name if zone_id in zones_by_id else "Unassigned",
+            cameras=[
+                CameraStatusItem(camera_id=c.camera_id, enabled=c.enabled, latitude=c.latitude, longitude=c.longitude)
+                for c in cams_in_zone
+            ],
+        )
+        for zone_id, cams_in_zone in groups.items()
+    ]
+    result.sort(key=lambda g: (g.zone_id is None, g.zone_name))
+    return CamerasByZoneResponse(zones=result)
+
+
 def get_camera(db: Session, org_id: Optional[int], camera_id: str) -> CameraResponse:
     cam = db.get(Camera, camera_id)
     if cam is None or cam.org_id != org_id:
@@ -220,6 +254,8 @@ def create_camera(db: Session, user: dict, payload: CameraCreate) -> CameraRespo
     cam = Camera(
         camera_id=payload.camera_id,
         name=payload.name,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
         zone_id=zone.id,
         priority_id=priority.id,
         kpi_ids=payload.kpi_ids,

@@ -28,7 +28,7 @@ def _make_priority(client, headers, name="Critical", level=1, color="#FF0000"):
 def _make_camera(client, headers, camera_id, zone_id, priority_id):
     resp = client.post(
         "/api/cameras", headers=headers,
-        json={"camera_id": camera_id, "name": camera_id, "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": camera_id, "name": camera_id, "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()

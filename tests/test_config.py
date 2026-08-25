@@ -178,7 +178,7 @@ def test_zone_camera_counts(client, owner):
     for cam_id in ("CAM-CNT1", "CAM-CNT2"):
         resp = client.post(
             "/api/cameras", headers=owner["headers"],
-            json={"camera_id": cam_id, "name": cam_id, "zone_id": str(zone_with_cameras["id"]), "priority_id": str(priority["id"])},
+            json={"camera_id": cam_id, "name": cam_id, "latitude": 12.9716, "longitude": 77.5946, "zone_id": str(zone_with_cameras["id"]), "priority_id": str(priority["id"])},
         )
         assert resp.status_code == 201, resp.text
 

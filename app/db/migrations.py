@@ -49,6 +49,8 @@ def _migrate_cameras(engine) -> None:
         ("zone_id",             "INTEGER",  ""),
         ("priority_id",         "INTEGER",  ""),
         ("kpi_model_ids",       "JSON",     " DEFAULT '[]'"),
+        ("latitude",            "FLOAT",    ""),
+        ("longitude",           "FLOAT",    ""),
     ])
 
 

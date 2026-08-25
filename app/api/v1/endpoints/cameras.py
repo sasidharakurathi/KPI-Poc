@@ -22,7 +22,7 @@ Business logic lives in app.services.camera_service.
 from fastapi import APIRouter, Depends
 
 from app.core.dependencies import DbSession, require_permission
-from app.schemas.camera import CameraCreate, CameraListResponse, CameraResponse, CameraUpdate
+from app.schemas.camera import CamerasByZoneResponse, CameraCreate, CameraListResponse, CameraResponse, CameraUpdate
 from app.services import camera_service
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
@@ -34,6 +34,17 @@ async def list_cameras(
     user: dict = Depends(require_permission("cameras", "view")),
 ):
     return camera_service.list_cameras(db, user.get("org_id"))
+
+
+@router.get("/by-zone", response_model=CamerasByZoneResponse)
+async def list_cameras_by_zone(
+    db: DbSession,
+    user: dict = Depends(require_permission("cameras", "view")),
+):
+    """Every camera's camera_id + enabled status, grouped by zone.
+    Registered before /{camera_id} so "by-zone" isn't swallowed as a
+    camera_id path param (same convention as GET /api/config/zones/camera-counts)."""
+    return camera_service.list_cameras_by_zone(db, user.get("org_id"))
 
 
 @router.get("/{camera_id}", response_model=CameraResponse)

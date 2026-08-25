@@ -34,6 +34,8 @@ class CameraKPIDetail(BaseModel):
 class CameraCreate(BaseModel):
     camera_id: str = Field(min_length=2, max_length=50)
     name: str = Field(min_length=2, max_length=100)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
     zone_id: str
     priority_id: str
     kpi_ids: list[int] = Field(default_factory=list)
@@ -58,6 +60,8 @@ class CameraCreate(BaseModel):
 
 class CameraUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
     zone_id: Optional[str] = None
     priority_id: Optional[str] = None
     kpi_ids: Optional[list[int]] = None
@@ -86,6 +90,8 @@ class CameraUpdate(BaseModel):
 class CameraResponse(BaseModel):
     camera_id: str
     name: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     zone_id: Optional[str] = None
     zone_name: Optional[str] = None
     priority_id: Optional[str] = None
@@ -112,6 +118,8 @@ class CameraResponse(BaseModel):
 class CameraListItem(BaseModel):
     camera_id: str
     name: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     zone_id: Optional[str] = None
     zone_name: Optional[str] = None
     priority_id: Optional[str] = None
@@ -131,3 +139,20 @@ class CameraListItem(BaseModel):
 class CameraListResponse(BaseModel):
     count: int
     cameras: list[CameraListItem]
+
+
+class CameraStatusItem(BaseModel):
+    camera_id: str
+    enabled: bool
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class ZoneCameraStatusGroup(BaseModel):
+    zone_id: Optional[str] = None
+    zone_name: str   # "Unassigned" when zone_id is None
+    cameras: list[CameraStatusItem]
+
+
+class CamerasByZoneResponse(BaseModel):
+    zones: list[ZoneCameraStatusGroup]

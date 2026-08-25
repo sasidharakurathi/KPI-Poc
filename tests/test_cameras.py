@@ -59,7 +59,7 @@ def test_camera_crud_requires_permission(client, owner, db_session):
     headers = {"Authorization": f"Bearer {token}"}
 
     assert client.get("/api/cameras", headers=headers).status_code == 403
-    assert client.post("/api/cameras", headers=headers, json={"camera_id": "CAM-1", "name": "X", "zone_id": "1", "priority_id": "1"}).status_code == 403
+    assert client.post("/api/cameras", headers=headers, json={"camera_id": "CAM-1", "name": "X", "latitude": 12.9716, "longitude": 77.5946, "zone_id": "1", "priority_id": "1"}).status_code == 403
 
 
 # ── Create / validation ──────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ def test_camera_crud_requires_permission(client, owner, db_session):
 def test_create_camera_requires_valid_zone_and_priority(client, owner):
     resp = client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-1", "name": "Front Gate", "zone_id": "999999", "priority_id": "999999"},
+        json={"camera_id": "CAM-1", "name": "Front Gate", "latitude": 12.9716, "longitude": 77.5946, "zone_id": "999999", "priority_id": "999999"},
     )
     assert resp.status_code == 422, resp.text
 
@@ -78,7 +78,7 @@ def test_create_camera_succeeds_and_enriches_response(client, owner):
 
     resp = client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-1", "name": "Front Gate", "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": "CAM-1", "name": "Front Gate", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -96,7 +96,7 @@ def test_create_camera_succeeds_and_enriches_response(client, owner):
 def test_create_camera_duplicate_id_409s(client, owner):
     zone_id = _make_zone(client, owner["headers"])
     priority_id = _make_priority(client, owner["headers"])
-    payload = {"camera_id": "CAM-DUP", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id}
+    payload = {"camera_id": "CAM-DUP", "name": "Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id}
     assert client.post("/api/cameras", headers=owner["headers"], json=payload).status_code == 201
     resp = client.post("/api/cameras", headers=owner["headers"], json=payload)
     assert resp.status_code == 409, resp.text
@@ -107,7 +107,7 @@ def test_create_camera_keeps_legacy_kpi_ids(client, owner):
     priority_id = _make_priority(client, owner["headers"])
     resp = client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-KPI", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id, "kpi_ids": [7, 11]},
+        json={"camera_id": "CAM-KPI", "name": "Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id, "kpi_ids": [7, 11]},
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -123,7 +123,7 @@ def test_list_cameras_enriched(client, owner):
     priority_id = _make_priority(client, owner["headers"], "High", 2, "#F59E0B")
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-L1", "name": "Cam L1", "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": "CAM-L1", "name": "Cam L1", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
     resp = client.get("/api/cameras", headers=owner["headers"])
     assert resp.status_code == 200, resp.text
@@ -150,11 +150,11 @@ def test_get_camera_alerts_by_year(client, owner, db_session):
     priority_id = _make_priority(client, owner["headers"], "Year Pri")
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-YEAR1", "name": "Cam Year1", "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": "CAM-YEAR1", "name": "Cam Year1", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-YEAR2", "name": "Cam Year2", "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": "CAM-YEAR2", "name": "Cam Year2", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
 
     create_alert(camera_id="CAM-YEAR1", kpi_name="fire_smoke", alert_type="fire", frame_idx=1, confidence=0.9)
@@ -186,7 +186,7 @@ def test_update_camera_partial(client, owner):
     priority_id = _make_priority(client, owner["headers"])
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-U1", "name": "Old Name", "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": "CAM-U1", "name": "Old Name", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
     resp = client.put("/api/cameras/CAM-U1", headers=owner["headers"], json={"name": "New Name"})
     assert resp.status_code == 200, resp.text
@@ -200,7 +200,7 @@ def test_update_camera_rejects_unknown_zone(client, owner):
     priority_id = _make_priority(client, owner["headers"])
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-U2", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": "CAM-U2", "name": "Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
     resp = client.put("/api/cameras/CAM-U2", headers=owner["headers"], json={"zone_id": "999999"})
     assert resp.status_code == 422, resp.text
@@ -211,7 +211,7 @@ def test_update_camera_status(client, owner):
     priority_id = _make_priority(client, owner["headers"])
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-U3", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": "CAM-U3", "name": "Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
     resp = client.put("/api/cameras/CAM-U3", headers=owner["headers"], json={"status": "inactive"})
     assert resp.status_code == 200, resp.text
@@ -225,7 +225,7 @@ def test_delete_camera(client, owner):
     priority_id = _make_priority(client, owner["headers"])
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-D1", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": "CAM-D1", "name": "Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
     resp = client.delete("/api/cameras/CAM-D1", headers=owner["headers"])
     assert resp.status_code == 204
@@ -256,7 +256,7 @@ def test_create_camera_with_kpi_model_ids(client, owner):
 
     resp = client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-KPI3", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id, "kpi_model_ids": [name]},
+        json={"camera_id": "CAM-KPI3", "name": "Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id, "kpi_model_ids": [name]},
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -271,7 +271,7 @@ def test_create_camera_rejects_unknown_kpi_model_id(client, owner):
     priority_id = _make_priority(client, owner["headers"])
     resp = client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-KPI-BAD", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id, "kpi_model_ids": ["not_a_real_kpi"]},
+        json={"camera_id": "CAM-KPI-BAD", "name": "Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id, "kpi_model_ids": ["not_a_real_kpi"]},
     )
     assert resp.status_code == 422, resp.text
 
@@ -282,7 +282,7 @@ def test_update_camera_kpi_model_ids(client, owner):
     name = _a_real_kpi_name()
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-KPI4", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id},
+        json={"camera_id": "CAM-KPI4", "name": "Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id},
     )
     resp = client.put(
         f"/api/cameras/CAM-KPI4", headers=owner["headers"],
@@ -298,7 +298,7 @@ def test_list_cameras_includes_kpi_model_ids(client, owner):
     name = _a_real_kpi_name()
     client.post(
         "/api/cameras", headers=owner["headers"],
-        json={"camera_id": "CAM-KPI5", "name": "Cam", "zone_id": zone_id, "priority_id": priority_id, "kpi_model_ids": [name]},
+        json={"camera_id": "CAM-KPI5", "name": "Cam", "latitude": 12.9716, "longitude": 77.5946, "zone_id": zone_id, "priority_id": priority_id, "kpi_model_ids": [name]},
     )
     resp = client.get("/api/cameras", headers=owner["headers"])
     assert resp.status_code == 200, resp.text
