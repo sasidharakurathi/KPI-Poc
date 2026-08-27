@@ -27,7 +27,7 @@ def get_session_ctx() -> Session:
 
 
 def init_db() -> None:
-    from .migrations import run_migrations
+    from .migrations import ensure_tables_exist, run_migrations
     from app.config import settings
 
     from .models import (
@@ -39,12 +39,13 @@ def init_db() -> None:
 
     engine = get_engine()
 
-    run_migrations(engine)
-    _seed_timezones_if_empty(engine)
+    ensure_tables_exist(engine)  # always safe: only creates missing tables, never alters/drops
     if settings.MIGRATION_ENABLED:
+        run_migrations(engine)
         logger.info("[db] MIGRATION_ENABLED=True - full migration suite applied")
     else:
-        logger.info("[db] schema sync complete")
+        logger.info("[db] MIGRATION_ENABLED=False - skipping column/data migrations (new tables still created)")
+    _seed_timezones_if_empty(engine)
 
 
 def _seed_timezones_if_empty(engine) -> None:

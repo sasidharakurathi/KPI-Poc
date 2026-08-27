@@ -10,8 +10,8 @@ from .api.v1.router import api_router
 from .auth.middleware import JWTAuthMiddleware
 from .clip_processor import clip_processor
 from .config import settings
-from .config_loader import get_cameras as get_seed_cameras, get_kpi_config, get_kpi_param, get_kpi_registry
-from .db import init_db, seed_cameras, get_config, set_config
+from .config_loader import get_kpi_config, get_kpi_param, get_kpi_registry
+from .db import init_db, get_config, set_config
 from .model_registry import preload_all
 from .services import camera_heartbeat
 from .services.ws_manager import ws_manager
@@ -61,7 +61,6 @@ async def lifespan(_app: FastAPI):
     settings.LOGOS_DIR.mkdir(parents=True, exist_ok=True)
 
     init_db()
-    seed_cameras(get_seed_cameras())
     if get_config("timezone") is None:
         set_config("timezone", {"default": "Asia/Riyadh"})
 

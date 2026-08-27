@@ -1,7 +1,20 @@
 """Idempotent schema migrations.
 
-Run on startup when MIGRATION_ENABLED=True. Every function here is safe to call
-repeatedly - it checks current schema state before issuing any DDL.
+Two different things happen at startup (see app.db.engine.init_db), gated
+differently:
+  ensure_tables_exist() - creates any table missing from the DB, from the
+    current SQLModel definitions. Always runs, unconditionally: a brand-new
+    table already has every column its model declares (e.g. a fresh
+    `cameras` table already has latitude/longitude), so this alone is
+    enough to bring an empty database fully up to date. Purely additive -
+    never alters or drops an existing table - so it's always safe.
+  run_migrations() - ALTERs existing tables (adding columns a table
+    created before that column existed is missing) and backfills/dedupes
+    data on them. Only runs when MIGRATION_ENABLED=True, since unlike
+    table creation this can rewrite real data on a live deployment (e.g.
+    _backfill_camera_org_id, _migrate_kpi_catalog_to_global's dedup
+    delete) and every function here is safe to call repeatedly, but not
+    something that should happen silently on every restart.
 
 How to give permission:
   Set MIGRATION_ENABLED=True in .env, then restart the server.
@@ -361,8 +374,16 @@ def _migrate_kpi_configuration(engine) -> None:
                     logger.info(f"[migrate] kpi_configuration.{col_name} converted TEXT -> JSON")
 
 
+def ensure_tables_exist(engine) -> None:
+    """Creates any table defined in the SQLModel metadata that doesn't
+    exist yet - safe to call unconditionally, regardless of
+    MIGRATION_ENABLED (never alters or drops an existing table)."""
+    SQLModel.metadata.create_all(engine)
+
+
 def run_migrations(engine) -> None:
-    """Apply all pending schema changes, then run create_all for new tables."""
+    """ALTERs existing tables and backfills/dedupes data on them. Only
+    called when MIGRATION_ENABLED=True - see app.db.engine.init_db."""
     _migrate_legacy_stream_columns(engine)
     _migrate_cameras(engine)
     _migrate_users(engine)
@@ -378,5 +399,4 @@ def run_migrations(engine) -> None:
     _migrate_multi_org_unique_constraints(engine)
     _migrate_kpi_catalog_to_global(engine)
 
-    SQLModel.metadata.create_all(engine)
     logger.info("[migrate] all migrations applied")
