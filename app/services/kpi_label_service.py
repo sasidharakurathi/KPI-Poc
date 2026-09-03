@@ -9,13 +9,18 @@ on, and per-camera-per-KPI polygon storage for KPIs that need a zone
 The frame is grabbed live over the camera's own RTSP connection (same URL
 builder streaming/recording already uses - app.stream_recorder.build_stream_url)
 so the polygon lines up with the pixel geometry the real detection pipeline
-sees. Cameras without a configured stream get a clear 422, not a silent
-placeholder image - a polygon drawn against the wrong frame is worse than
-no polygon.
+sees. A camera that HAS a stream configured but is unreachable still gets a
+clear error (503), not a silent placeholder - a polygon drawn against the
+wrong frame is worse than no polygon. A camera with NO stream configured at
+all falls back to a bundled sample frame (_SAMPLE_FRAME_PATH, committed to
+the repo under app/assets/) so zone-drawing can still be exercised during
+development/demos without a live camera; if that asset is ever missing, the
+original 422 ("set up its stream...") is raised as before.
 """
 import base64
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import cv2
@@ -37,6 +42,12 @@ logger = logging.getLogger(__name__)
 _OPEN_TIMEOUT_MSEC = 8_000
 _READ_TIMEOUT_MSEC = 5_000
 
+# Dev/demo fallback: a single frame (extracted from a sample "people
+# walking" clip, committed to the repo) stands in for a live frame when a
+# camera has no camera_ip/RTSP stream configured yet, so zones can still be
+# drawn without a live camera. See _grab_sample_frame.
+_SAMPLE_FRAME_PATH = Path(__file__).resolve().parent.parent / "assets" / "sample_frames" / "people_walking.jpg"
+
 
 def _get_camera_or_404(db: Session, org_id: Optional[int], camera_id: str) -> Camera:
     cam = db.get(Camera, camera_id)
@@ -51,14 +62,29 @@ def _assigned_kpi_names(cam: Camera) -> list[str]:
     return resolve_kpi_names(cam.kpi_ids) or list(cam.kpi_model_ids)
 
 
-def _grab_live_frame(cam: Camera):
-    url = build_stream_url(cam)
-    if not url:
+def _grab_sample_frame(cam: Camera):
+    """Fallback for a camera with no RTSP stream configured - the bundled
+    _SAMPLE_FRAME_PATH image instead of hard-blocking, so zone-drawing can
+    still be exercised without a live camera. Raises the same 422 the caller
+    would have gotten anyway if the asset is ever missing."""
+    frame = cv2.imread(str(_SAMPLE_FRAME_PATH)) if _SAMPLE_FRAME_PATH.exists() else None
+    if frame is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Camera '{cam.camera_id}' has no camera_ip/RTSP stream configured - "
             "set up its stream (camera_ip, stream_path, credentials) before drawing labels.",
         )
+    return frame
+
+
+def _grab_live_frame(cam: Camera):
+    url = build_stream_url(cam)
+    if not url:
+        logger.info(
+            f"[kpi_label] camera '{cam.camera_id}' has no RTSP stream configured - "
+            "using sample fallback frame"
+        )
+        return _grab_sample_frame(cam)
     cap = cv2.VideoCapture(url)
     cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, _OPEN_TIMEOUT_MSEC)
     cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, _READ_TIMEOUT_MSEC)
@@ -78,25 +104,10 @@ def _grab_live_frame(cam: Camera):
     finally:
         cap.release()
 
-def _grab_sample_frame():
-    try:
-
-        frame = cv2.imread(r"C:\Users\Administrator\Downloads\KPI-Poc\storage\alerts\39ab96b6-d2a5-4ee4-a579-c24267e62801\smoking\000683\06_frame000023.jpg")
-        if frame is None:
-            raise HTTPException(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                f"Could not read a frame from camera stream.",
-            )
-        return frame
-    finally:
-        # cap.release()
-        pass
-
 
 def get_camera_frame(db: Session, org_id: Optional[int], camera_id: str) -> CameraFrameResponse:
     cam = _get_camera_or_404(db, org_id, camera_id)
     frame = _grab_live_frame(cam)
-    # frame = _grab_sample_frame()
     h, w = frame.shape[:2]
 
     ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])

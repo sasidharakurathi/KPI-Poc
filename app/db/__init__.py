@@ -321,6 +321,7 @@ def create_email_log(
     subject: str = "",
     recipients: Optional[list[str]] = None,
     alert_id: Optional[int] = None,
+    org_id: Optional[int] = None,
     kpi_name: Optional[str] = None,
     alert_type: Optional[str] = None,
     camera_id: Optional[str] = None,
@@ -330,7 +331,7 @@ def create_email_log(
     with get_session_ctx() as session:
         log = EmailLog(
             status=status, subject=subject, recipients=recipients or [],
-            alert_id=alert_id, kpi_name=kpi_name, alert_type=alert_type,
+            alert_id=alert_id, org_id=org_id, kpi_name=kpi_name, alert_type=alert_type,
             camera_id=camera_id, camera_name=camera_name, error=error,
         )
         session.add(log)
@@ -357,11 +358,25 @@ def query_email_logs(
     sort_dir: str = "desc",
     limit: int = 50,
     offset: int = 0,
+    allowed_camera_ids: Optional[set[str]] = None,
+    allowed_kpi_names: Optional[set[str]] = None,
+    org_id: Optional[int] = None,
 ) -> tuple[list[EmailLog], int]:
+    """org_id/allowed_camera_ids/allowed_kpi_names: same unrestricted-when-
+    None convention as query_alerts - see app.services.email_log_service."""
     with get_session_ctx() as session:
         stmt = select(EmailLog)
         count_stmt = select(_func.count()).select_from(EmailLog)
 
+        if org_id is not None:
+            stmt = stmt.where(EmailLog.org_id == org_id)
+            count_stmt = count_stmt.where(EmailLog.org_id == org_id)
+        if allowed_camera_ids is not None:
+            stmt = stmt.where(EmailLog.camera_id.in_(allowed_camera_ids))
+            count_stmt = count_stmt.where(EmailLog.camera_id.in_(allowed_camera_ids))
+        if allowed_kpi_names is not None:
+            stmt = stmt.where(EmailLog.kpi_name.in_(allowed_kpi_names))
+            count_stmt = count_stmt.where(EmailLog.kpi_name.in_(allowed_kpi_names))
         if status:
             stmt = stmt.where(EmailLog.status == status)
             count_stmt = count_stmt.where(EmailLog.status == status)

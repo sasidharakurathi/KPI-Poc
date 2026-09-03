@@ -201,6 +201,68 @@ def _migrate_alert_org_id(engine) -> None:
             ))
 
 
+def _migrate_email_log_org_id(engine) -> None:
+    """Adds email_logs.org_id and backfills every existing row from its
+    camera (EmailLog.camera_id -> Camera.org_id) - same rationale as
+    _migrate_alert_org_id above, needed so email-alert log visibility can be
+    org/zone/KPI-scoped the same way the Alerts list already is. Camera-less
+    rows (e.g. system-wide test emails) are left with org_id=NULL and are
+    simply invisible to org-scoped queries going forward."""
+    inspector = _inspect(engine)
+    if "email_logs" not in inspector.get_table_names():
+        return
+
+    _add_columns(engine, "email_logs", [
+        ("org_id", "INTEGER", ""),
+    ])
+
+    if "cameras" in inspector.get_table_names():
+        with engine.begin() as conn:
+            conn.execute(_text(
+                "UPDATE email_logs SET org_id = ("
+                "  SELECT cameras.org_id FROM cameras WHERE cameras.camera_id = email_logs.camera_id"
+                ") WHERE email_logs.org_id IS NULL AND email_logs.camera_id IS NOT NULL"
+            ))
+
+
+def _migrate_email_server_single_default(engine) -> None:
+    """Adds a partial unique index so the database itself refuses a second
+    is_default=true row per org - closes a narrow race in
+    app.api.v1.endpoints.email_servers._clear_other_defaults (read the
+    current defaults, then write - no row lock in between) where two
+    concurrent "set as default" requests could each fail to see the other's
+    still-uncommitted change and both end up is_default=true. Only needs to
+    run on Postgres; SQLite (pytest) is single-threaded per test so this
+    race can't occur there."""
+    if engine.dialect.name != "postgresql":
+        return
+    inspector = _inspect(engine)
+    if "email_servers" not in inspector.get_table_names():
+        return
+
+    with engine.begin() as conn:
+        # Dedupe first: if a prior race already left more than one default
+        # per org, keep the lowest id (oldest) and clear the rest - required
+        # before the unique index below can be created at all.
+        dupes = conn.execute(_text(
+            "SELECT org_id, array_agg(id ORDER BY id) FROM email_servers "
+            "WHERE is_default = TRUE GROUP BY org_id HAVING COUNT(*) > 1"
+        )).all()
+        for org_id, ids in dupes:
+            keep, clear = ids[0], ids[1:]
+            conn.execute(_text("UPDATE email_servers SET is_default = FALSE WHERE id = ANY(:clear)"), {"clear": clear})
+            logger.warning(
+                f"[migrate] email_servers: org {org_id} had {len(ids)} default servers "
+                f"(kept id={keep}, cleared {clear}) while adding the single-default constraint"
+            )
+
+        conn.execute(_text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_email_servers_org_default "
+            "ON email_servers (org_id) WHERE is_default = TRUE"
+        ))
+        logger.info("[migrate] email_servers: added partial unique index enforcing one default per org")
+
+
 def _backfill_camera_org_id(engine) -> None:
     """Cameras are seeded from config.json at every startup (see
     app.db.seed_cameras) and predate any org concept, so existing rows have
@@ -393,6 +455,8 @@ def run_migrations(engine) -> None:
     _backfill_camera_org_id(engine)
     _migrate_alerts(engine)
     _migrate_alert_org_id(engine)
+    _migrate_email_log_org_id(engine)
+    _migrate_email_server_single_default(engine)
     _migrate_audit_logs(engine)
     _migrate_kpi_configuration(engine)
     _migrate_multi_org_unique_constraints(engine)

@@ -39,7 +39,7 @@ def allowed_kpi_names_for_user(user: dict, db: Session) -> Optional[set[str]]:
         return None
     role_id = user.get("role_id")
     role = db.get(Role, role_id) if role_id else None
-    return allowed_kpi_names_for_role(role, db)
+    return allowed_kpi_names_for_role(role)
 
 
 def _has_alerts_view(role: Role) -> bool:

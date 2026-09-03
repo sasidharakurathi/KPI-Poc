@@ -39,13 +39,21 @@ _NO_DEFAULT_SERVER_MESSAGE = (
 
 def try_get_default_email_server(db: Session, org_id: Optional[int]) -> Optional[EmailServer]:
     """Returns the org's default email server, or None if there isn't one.
-    Use only where the caller must succeed regardless (org registration)."""
+    Use only where the caller must succeed regardless (org registration).
+
+    Ordered by id so the choice is deterministic even in the narrow window
+    where more than one row is is_default=true (a race between two
+    concurrent "set as default" requests, closed at the DB level by the
+    partial unique index added in app.db.migrations
+    ._migrate_email_server_single_default - this ordering is just a
+    defense-in-depth fallback for a deployment where that migration hasn't
+    run yet, e.g. MIGRATION_ENABLED=False)."""
     return db.exec(
         select(EmailServer).where(
             EmailServer.org_id == org_id,
-            EmailServer.is_default == True, 
+            EmailServer.is_default == True,
             EmailServer.enabled == True,
-        )
+        ).order_by(EmailServer.id)
     ).first()
 
 

@@ -290,7 +290,7 @@ def notify_alert(
         )
         db.create_email_log(
             status="failed", subject=subject, recipients=recipients,
-            alert_id=alert_id, kpi_name=kpi_name, alert_type=alert_type,
+            alert_id=alert_id, org_id=org_id, kpi_name=kpi_name, alert_type=alert_type,
             camera_id=camera_id, camera_name=camera_name,
             error="No default email server configured for this organization.",
         )
@@ -307,14 +307,14 @@ def notify_alert(
             logger.info(f"[email] sent notification for alert #{alert_id} ({kpi_name}) to {len(recipients)} recipient(s)")
             db.create_email_log(
                 status="sent", subject=subject, recipients=recipients,
-                alert_id=alert_id, kpi_name=kpi_name, alert_type=alert_type,
+                alert_id=alert_id, org_id=org_id, kpi_name=kpi_name, alert_type=alert_type,
                 camera_id=camera_id, camera_name=camera_name,
             )
         except Exception as exc:
             logger.exception(f"[email] failed to send notification for alert #{alert_id} ({kpi_name})")
             db.create_email_log(
                 status="failed", subject=subject, recipients=recipients,
-                alert_id=alert_id, kpi_name=kpi_name, alert_type=alert_type,
+                alert_id=alert_id, org_id=org_id, kpi_name=kpi_name, alert_type=alert_type,
                 camera_id=camera_id, camera_name=camera_name, error=str(exc),
             )
 

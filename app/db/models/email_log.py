@@ -11,6 +11,7 @@ class EmailLog(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     alert_id: Optional[int] = Field(default=None, index=True)
+    org_id: Optional[int] = Field(default=None, foreign_key="organizations.id", index=True)
     kpi_name: Optional[str] = Field(default=None, index=True)
     alert_type: Optional[str] = None
     camera_id: Optional[str] = Field(default=None, index=True)

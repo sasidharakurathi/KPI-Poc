@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     JWT_ISSUER: str = "vision-ai"
 
     # ── DB Migrations ───────────────────────────────────────────────────────
-    MIGRATION_ENABLED: bool = False
+    MIGRATION_ENABLED: bool = True
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
