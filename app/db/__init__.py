@@ -15,7 +15,7 @@ from .engine import get_engine, get_session, get_session_ctx, init_db
 from .models import (
     Alert, AlertFrame, AuditLog, Camera, Configuration,
     EmailLog, EmailServer, Job,
-    KpiModelCatalog, Organization, Priority, RefreshToken,
+    Organization, Priority, RefreshToken,
     Role, Timezone, User, Zone,
 )
 
@@ -27,7 +27,7 @@ __all__ = [
     # models
     "Alert", "AlertFrame", "AuditLog", "Camera", "Configuration",
     "EmailLog", "EmailServer", "Job",
-    "KpiModelCatalog", "Organization", "Priority", "RefreshToken",
+    "Organization", "Priority", "RefreshToken",
     "Role", "Timezone", "User", "Zone",
     # write helpers
     "create_alert", "add_alert_frames", "upsert_job", "update_job", "get_job",

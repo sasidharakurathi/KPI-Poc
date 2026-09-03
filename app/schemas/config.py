@@ -1,4 +1,4 @@
-"""Configuration-module schemas (Phase 1): priorities, zones, email servers, KPI models.
+"""Configuration-module schemas (Phase 1): priorities, zones, email servers.
 
 org_id is intentionally NOT accepted on any Create/Update schema - it's
 derived server-side from the authenticated caller (see app/core/dependencies
@@ -107,24 +107,3 @@ class EmailServerResponse(BaseModel):
     is_default: bool
     org_id: Optional[int] = None
     password_set: bool = True       # never expose ciphertext
-
-
-# ── KPI Model Catalog ─────────────────────────────────────────────────────────
-
-class KpiModelCreate(BaseModel):
-    name: str = Field(min_length=2, max_length=60)
-    model_path: str
-    confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
-    enabled: bool = True
-
-class KpiModelResponse(BaseModel):
-    """Shared across every organization - no org_id field, unlike the other
-    Phase 1 config responses above (see app.db.models.domain_config
-    .KpiModelCatalog's docstring)."""
-    model_config = {"from_attributes": True}
-    id: int
-    name: str
-    model_path: str
-    confidence_threshold: float
-    enabled: bool
-    created_at: datetime

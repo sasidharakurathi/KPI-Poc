@@ -33,7 +33,7 @@ def init_db() -> None:
     from .models import (
         AuditLog, Camera, Configuration, EmailLog, EmailServer,
         Job, Alert, AlertFrame,
-        KpiModelCatalog, Organization, Priority, RefreshToken,
+        Organization, Priority, RefreshToken,
         Role, Timezone, User, Zone,
     )
 

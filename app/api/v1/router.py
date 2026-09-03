@@ -11,7 +11,6 @@ from .endpoints import (
     email_servers,
     health,
     kpi_labels,
-    kpi_models,
     kpis,
     organization,
     priorities,
@@ -39,9 +38,8 @@ api_router.include_router(organization.router)
 api_router.include_router(organization.organizations_router)  
 api_router.include_router(priorities.router)     
 api_router.include_router(zones.router)          
-api_router.include_router(email_servers.router)  
-api_router.include_router(kpi_models.router)     
-api_router.include_router(timezones.router)      
+api_router.include_router(email_servers.router)
+api_router.include_router(timezones.router)
 api_router.include_router(roles.router)          
 api_router.include_router(users.router)          
 api_router.include_router(dashboard.router)      

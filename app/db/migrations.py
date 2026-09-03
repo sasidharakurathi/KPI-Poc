@@ -232,7 +232,7 @@ def _rescope_unique_constraint_to_org(engine, table_name: str, column: str, org_
     UNIQUE(org_column, column) one.
 
     Several org-scoped tables (Priority.name, EmailServer.label,
-    KpiModelCatalog.name, Role.name) were originally declared with a
+    Role.name) were originally declared with a
     column-level `unique=True` in SQLModel - a global constraint - even
     though every endpoint's own duplicate-check has always been scoped to
     org_id. That mismatch was invisible on a single-org deployment (there
@@ -285,7 +285,7 @@ def _dedupe_and_make_globally_unique(engine, table_name: str, column: str) -> No
     (org_id, column) unique constraint (or adds none if there wasn't one)
     and replaces it with a plain UNIQUE(column) - used for tables that used
     to be per-org but are now shared across every organization
-    (kpi_model_catalog, kpi_configuration).
+    (kpi_configuration).
 
     If two different orgs already created a row with the same value (e.g.
     two "Fire & Smoke Model" rows), a straight ADD CONSTRAINT would fail -
@@ -330,13 +330,11 @@ def _dedupe_and_make_globally_unique(engine, table_name: str, column: str) -> No
 
 
 def _migrate_kpi_catalog_to_global(engine) -> None:
-    """kpi_model_catalog and kpi_configuration became shared across every
-    organization instead of per-org - see both models' docstrings. Only
-    needs to run on Postgres; SQLite (pytest) always gets the global
-    constraint fresh via create_all."""
+    """kpi_configuration became shared across every organization instead of
+    per-org - see its model's docstring. Only needs to run on Postgres;
+    SQLite (pytest) always gets the global constraint fresh via create_all."""
     if engine.dialect.name != "postgresql":
         return
-    _dedupe_and_make_globally_unique(engine, "kpi_model_catalog", "name")
     _dedupe_and_make_globally_unique(engine, "kpi_configuration", "kpi_name")
 
 

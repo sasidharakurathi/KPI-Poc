@@ -3,8 +3,8 @@
 Covers the original audit fixes (auth, org scoping, unregistered-name
 rejection, native JSON columns) plus "complete Phase 3": the reshaped
 response matching the frontend's real KpiModelDef contract, model_ids
-validation against Phase 1's KpiModelCatalog, and pipeline write-through
-(config.json actually changes when the catalog changes).
+format validation, and pipeline write-through (config.json actually
+changes when the catalog changes).
 """
 from app.kpis import get_registry, list_registered_names
 
@@ -13,15 +13,6 @@ def _a_real_kpi_name() -> str:
     names = list_registered_names()
     assert names, "expected at least one registered KPI for this test to be meaningful"
     return names[0]
-
-
-def _make_detection_model(client, headers, name="Test Model"):
-    resp = client.post(
-        "/api/config/kpi-models", headers=headers,
-        json={"name": name, "model_path": "app/models/test.pt", "confidence_threshold": 0.5},
-    )
-    assert resp.status_code == 201, resp.text
-    return str(resp.json()["id"])
 
 
 def test_kpi_catalog_requires_auth(client):
@@ -76,21 +67,20 @@ def test_create_rejects_invalid_category(client, owner):
     assert resp.status_code == 422, resp.text
 
 
-def test_model_ids_validated_against_detection_model_catalog(client, owner):
+def test_model_ids_rejects_non_numeric_values(client, owner):
     name = _a_real_kpi_name()
     resp = client.put(
         f"/api/kpis/catalog/{name}", headers=owner["headers"],
-        json={"model_ids": ["999999"]},
+        json={"model_ids": ["not-a-number"]},
     )
     assert resp.status_code == 422, resp.text
 
-    real_model_id = _make_detection_model(client, owner["headers"])
     resp2 = client.put(
         f"/api/kpis/catalog/{name}", headers=owner["headers"],
-        json={"model_ids": [real_model_id]},
+        json={"model_ids": ["1"]},
     )
     assert resp2.status_code == 200, resp2.text
-    assert resp2.json()["model_ids"] == [real_model_id]
+    assert resp2.json()["model_ids"] == ["1"]
 
 
 def test_toggle_catalog_entry(client, owner):
@@ -181,11 +171,10 @@ def test_model_ids_do_not_write_through(client, owner, monkeypatch):
     monkeypatch.setattr(kpis_ep, "update_kpi_config", lambda cls_name, updates: calls.append((cls_name, updates)) or updates)
 
     name = _a_real_kpi_name()
-    real_model_id = _make_detection_model(client, owner["headers"], "Write-through Model")
 
     resp = client.put(
         f"/api/kpis/catalog/{name}", headers=owner["headers"],
-        json={"model_ids": [real_model_id]},
+        json={"model_ids": ["1"]},
     )
     assert resp.status_code == 200, resp.text
     assert calls == []

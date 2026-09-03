@@ -1,5 +1,5 @@
 """Import order matters: tables with FKs must come after the tables they reference."""
-from .domain_config import EmailServer, KpiModelCatalog, Priority, Timezone, Zone
+from .domain_config import EmailServer, Priority, Timezone, Zone
 from .organization import Organization
 from .role import Role
 from .user import RefreshToken, User
@@ -12,7 +12,7 @@ from .kpi_configuration import KPIConfiguration
 from .kpi_zone_label import KpiZoneLabel
 
 __all__ = [
-    "EmailServer", "KpiModelCatalog", "Priority", "Timezone", "Zone",
+    "EmailServer", "Priority", "Timezone", "Zone",
     "Organization",
     "Role",
     "RefreshToken", "User",

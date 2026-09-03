@@ -31,9 +31,9 @@ KPI_CATEGORIES = ("safety", "compliance", "operations", "security")
 class KpiCatalogUpdate(BaseModel):
     """Field names/values match the frontend's real contract exactly
     (vision-ai-frontend/src/api/kpiModels.ts KpiModelInput + the
-    setEnabled/updateConfig/updateModels mutations) - model_ids references
-    Phase 1's KpiModelCatalog (Configuration > KPI Models), not this
-    catalog's own rows and not the code-level detector registry."""
+    setEnabled/updateConfig/updateModels mutations) - model_ids is an
+    opaque list of model identifiers, not validated against any catalog
+    and not the code-level detector registry."""
     model_ids: Optional[list[str]] = None
     config: Optional[dict[str, Any]] = None
     description: Optional[str] = None

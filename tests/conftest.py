@@ -94,7 +94,6 @@ def client():
     from app.api.v1.endpoints import cameras as cameras_ep
     from app.api.v1.endpoints import dashboard as dashboard_ep
     from app.api.v1.endpoints import email_servers as email_servers_ep
-    from app.api.v1.endpoints import kpi_models as kpi_models_ep
     from app.api.v1.endpoints import kpis as kpis_ep
     from app.api.v1.endpoints import organization as org_ep
     from app.api.v1.endpoints import priorities as priorities_ep
@@ -114,7 +113,6 @@ def client():
     test_app.include_router(priorities_ep.router)
     test_app.include_router(zones_ep.router)
     test_app.include_router(email_servers_ep.router)
-    test_app.include_router(kpi_models_ep.router)
     test_app.include_router(timezones_ep.router)
     test_app.include_router(cameras_ep.router)
     test_app.include_router(alerts_ep.router)

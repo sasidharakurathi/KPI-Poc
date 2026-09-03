@@ -255,47 +255,6 @@ def test_email_server_same_label_across_orgs_allowed(client, owner, db_session):
     assert resp2.status_code == 201, resp2.text
 
 
-# ── KPI Models ──────────────────────────────────────────────────────────────
-
-def test_kpi_models_require_auth(client):
-    resp = client.post("/api/config/kpi-models", json={"name": "fire_smoke_v2", "model_path": "/models/x.pt"})
-    assert resp.status_code == 401
-
-
-def test_create_kpi_model_ignores_client_supplied_org_id(client, owner):
-    """The KPI Models catalog is global (shared across every org, not
-    org-scoped - see app.db.models.domain_config.KpiModelCatalog's
-    docstring), so a client-supplied org_id in the body is simply ignored:
-    not stored, not echoed back."""
-    resp = client.post(
-        "/api/config/kpi-models", headers=owner["headers"],
-        json={"name": "fire_smoke_v2", "model_path": "/models/fire.pt", "org_id": 999999},
-    )
-    assert resp.status_code == 201, resp.text
-    assert "org_id" not in resp.json()
-
-
-def test_kpi_models_list_includes_disabled_rows(client, owner):
-    created = client.post(
-        "/api/config/kpi-models", headers=owner["headers"],
-        json={"name": "ppe_v2", "model_path": "/models/ppe.pt"},
-    ).json()
-    client.patch(f"/api/config/kpi-models/{created['id']}/toggle", headers=owner["headers"])
-    listed = client.get("/api/config/kpi-models", headers=owner["headers"]).json()
-    assert any(m["id"] == created["id"] and m["enabled"] is False for m in listed)
-
-
-def test_kpi_model_same_name_across_orgs_rejected(client, owner, db_session):
-    """Unlike Priority/EmailServer (org-scoped), the KPI Models catalog is
-    global - a second org creating a model with the same name must 409, not
-    silently succeed as a separate per-org row."""
-    other_headers = _second_org_headers(client, db_session)
-    body = {"name": "fire_smoke_v2", "model_path": "/models/fire.pt"}
-    resp1 = client.post("/api/config/kpi-models", headers=owner["headers"], json=body)
-    resp2 = client.post("/api/config/kpi-models", headers=other_headers, json=body)
-    assert resp1.status_code == 201, resp1.text
-    assert resp2.status_code == 409, resp2.text
-
 
 # ── Roles: same name across orgs (a fresh org's own "Owner" role) ───────────
 

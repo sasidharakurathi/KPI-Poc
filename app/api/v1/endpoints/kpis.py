@@ -14,7 +14,6 @@ from app.config_loader import (
 from app.kpis import get_registered_kpis, get_registry, list_registered_names
 from app.schemas import KPIInfo, KPISettingsItem, KPISettingsResponse, RegisteredKPIsResponse
 from app.schemas.kpi import KpiCatalogResponse, KpiCatalogUpdate
-from app.db.models.domain_config import KpiModelCatalog
 from app.db.models.kpi_configuration import KPIConfiguration
 from app.core.dependencies import DbSession, require_permission
 from sqlmodel import select
@@ -68,12 +67,9 @@ def _registered_class_or_404(name: str):
 def _validate_model_ids(session: DbSession, model_ids: list[str]) -> list[str]:
     for raw in model_ids:
         try:
-            model_id = int(raw)
+            int(raw)
         except (TypeError, ValueError):
             raise HTTPException(status_code=422, detail=f"Invalid model id: {raw!r}")
-        model = session.get(KpiModelCatalog, model_id)
-        if model is None:
-            raise HTTPException(status_code=422, detail=f"model_ids contains an unknown detection model: {raw!r}")
     return model_ids
 
 

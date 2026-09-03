@@ -12,15 +12,6 @@ Tables touched, and why:
   cameras             UPDATED in place: zone_id/priority_id/kpi_model_ids -
                        every existing camera had all three NULL/empty -
                        org-scoped
-  kpi_model_catalog   new rows, one per registered KPI, using each
-                       detector's REAL model_path/confidence from config.json
-                       (app.config_loader) - not made up. GLOBAL, not
-                       org-scoped (see app.db.models.domain_config
-                       .KpiModelCatalog's docstring) - seeded once regardless
-                       of which --org-id you pass.
-  kpi_configuration   UPDATED in place: assigned_models now references the
-                       kpi_model_catalog rows above instead of staying empty.
-                       Also GLOBAL, updated once regardless of --org-id.
   roles               2 new sample roles (Operator, Zone Guard) alongside
                        the existing Owner/Viewer - org-scoped
   users               new users for those roles - org-scoped
@@ -41,18 +32,17 @@ Tables deliberately NOT touched, and why:
   organizations        already has real registered org(s) - this script
                        only ever operates within an existing one.
 
-Idempotent by default: cameras/kpi_configuration are only updated where
-currently empty (pass --force to overwrite), and every insert checks for an
-existing row with the same name/username first. Safe to re-run.
+Idempotent by default: cameras are only updated where currently empty (pass
+--force to overwrite), and every insert checks for an existing row with the
+same name/username first. Safe to re-run.
 
 Usage:
     python scripts/seed_reference_data.py                # first org, real run
     python scripts/seed_reference_data.py --org-id 2
     python scripts/seed_reference_data.py --dry-run
-    python scripts/seed_reference_data.py --force         # overwrite cameras'/
-                                                            # kpi_configuration's
+    python scripts/seed_reference_data.py --force         # overwrite cameras'
                                                             # existing zone/priority/
-                                                            # kpi_model_ids/assigned_models
+                                                            # kpi_model_ids
 """
 import argparse
 import random
@@ -63,13 +53,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlmodel import Session, select
 
-from app.config_loader import get_kpi_config
 from app.core.security import hash_password
 from app.db.engine import get_engine
 from app.db.models import (
-    Alert, Camera, EmailLog, KpiModelCatalog, Organization, Priority, Role, User, Zone,
+    Alert, Camera, EmailLog, Organization, Priority, Role, User, Zone,
 )
-from app.db.models.kpi_configuration import KPIConfiguration
 from app.kpis import get_registry
 
 # ── Priorities ────────────────────────────────────────────────────────────────
@@ -108,24 +96,6 @@ _ZONE_KPI_DEFAULTS: dict[str, list[str]] = {
     "Laundry": ["fire_smoke"],
     "Crane Area": ["ppe", "falling_pose"],
     "General Area": ["ppe"],
-}
-
-# registry name -> the config.json key each detector's primary model lives
-# under (see each KPI class's config block - some compound detectors like
-# MobileUsageKPI/SmokingKPI have several *_model_path keys; the one picked
-# here is that KPI's most identifying model, not necessarily the only one).
-_KPI_MODEL_PATH_KEY: dict[str, tuple[str, str]] = {
-    "fire_smoke": ("FireSmokeKPI", "model_path"),
-    "ppe": ("PPEKPI", "model_path"),
-    "falling_pose": ("FallingPoseKPI", "pose_model_path"),
-    "floating": ("FloatingKPI", "model_path"),
-    "speed_tracker": ("SpeedTrackerKPI", "model_path"),
-    "smoking": ("SmokingKPI", "cigarette_model_path"),
-    "mobile_usage": ("MobileUsageKPI", "phone_model_path"),
-    "ANPR_LPR": ("AnprLprKPI", "model_path"),
-    "object_detection": ("BoxCounterKPI", "model_path"),
-    "density_occupancy": ("DensityOccupancyKPI", "model_path"),
-    "people_count": ("PeopleCountKPI", "model_path"),
 }
 
 _SAMPLE_USERS = [
@@ -217,60 +187,6 @@ def assign_camera_references(
         if needs_kpis:
             cam.kpi_model_ids = kpi_defaults
         session.add(cam)
-    return updated
-
-
-def seed_kpi_model_catalog(session: Session, *, dry_run: bool) -> dict[str, KpiModelCatalog]:
-    """One catalog entry per registered KPI, using that detector's real
-    model_path + confidence straight from config.json - not invented.
-    Global (not org-scoped) - seeded once regardless of --org-id."""
-    existing = {m.name: m for m in session.exec(select(KpiModelCatalog)).all()}
-    by_kpi_name: dict[str, KpiModelCatalog] = {}
-    registry = get_registry()
-
-    for kpi_name, cls in registry.items():
-        class_name, path_key = _KPI_MODEL_PATH_KEY.get(kpi_name, (cls.__name__, "model_path"))
-        cfg = get_kpi_config(class_name)
-        model_path = cfg.get(path_key)
-        confidence = cfg.get("confidence", 0.5)
-        if not model_path:
-            continue
-
-        catalog_name = f"{cls.display_name} Model"
-        if catalog_name not in existing:
-            print(f"  + kpi model {catalog_name} -> {model_path} (confidence {confidence})")
-            if dry_run:
-                existing[catalog_name] = _Stub(name=catalog_name)
-            else:
-                entry = KpiModelCatalog(
-                    name=catalog_name, model_path=model_path, confidence_threshold=confidence,
-                    created_by="seed_reference_data.py",
-                )
-                session.add(entry)
-                session.flush()
-                existing[catalog_name] = entry
-        if catalog_name in existing:
-            by_kpi_name[kpi_name] = existing[catalog_name]
-    return by_kpi_name
-
-
-def link_kpi_configuration_models(
-    session: Session, model_by_kpi: dict[str, KpiModelCatalog], *, force: bool, dry_run: bool,
-) -> int:
-    """Global (not org-scoped) - updated once regardless of --org-id."""
-    configs = session.exec(select(KPIConfiguration)).all()
-    updated = 0
-    for config in configs:
-        if config.assigned_models and not force:
-            continue
-        model = model_by_kpi.get(config.kpi_name)
-        if model is None:
-            continue
-        print(f"  ~ kpi_configuration[{config.kpi_name}].assigned_models -> [{model.id}]")
-        updated += 1
-        if not dry_run:
-            config.assigned_models = [model.id]
-            session.add(config)
     return updated
 
 
@@ -393,12 +309,6 @@ def main() -> None:
         print("\nCamera zone_id/priority_id/kpi_model_ids:")
         cameras_updated = assign_camera_references(session, org, zones, priorities, force=args.force, dry_run=args.dry_run)
 
-        print("\nKPI Model Catalog (detection models, global - shared across every org):")
-        model_by_kpi = seed_kpi_model_catalog(session, dry_run=args.dry_run)
-
-        print("\nKPI Management catalog -> assigned_models links (global):")
-        kpi_config_updated = link_kpi_configuration_models(session, model_by_kpi, force=args.force, dry_run=args.dry_run)
-
         print("\nRoles:")
         roles = seed_roles(session, org, zones, dry_run=args.dry_run)
 
@@ -414,8 +324,7 @@ def main() -> None:
         mode = "Would write" if args.dry_run else "Wrote/updated"
         print(
             f"\n{mode}: {len(priorities)} priorities, {len(zones)} zones, "
-            f"{cameras_updated} camera(s) updated, {len(model_by_kpi)} kpi models, "
-            f"{kpi_config_updated} kpi_configuration link(s), {len(roles)} roles, "
+            f"{cameras_updated} camera(s) updated, {len(roles)} roles, "
             f"{users_created} user(s), {email_logs_created} email_log(s)."
         )
 

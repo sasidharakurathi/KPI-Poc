@@ -23,6 +23,7 @@ from sqlmodel import Session, select
 from app.db import create_alert
 from app.db.engine import get_engine
 from app.db.models import Camera
+from app.notifications import notify_alert
 from app.services.ws_manager import ws_manager
 from app.stream_recorder import stream_recorder_manager
 
@@ -58,7 +59,7 @@ def _check_once() -> None:
             if previous == "active" and new_status == "inactive":
                 message = f"Camera '{cam.name}' went offline."
                 try:
-                    create_alert(
+                    alert_id = create_alert(
                         job_id=None,
                         kpi_name="system",
                         alert_type="camera_offline",
@@ -69,6 +70,20 @@ def _check_once() -> None:
                     )
                 except Exception:
                     logger.exception("[camera_heartbeat] failed to create offline alert for %s", cam.camera_id)
+                else:
+                    try:
+                        notify_alert(
+                            kpi_name="system",
+                            display_name="Camera Connectivity",
+                            alert_type="camera_offline",
+                            job_id=None,
+                            alert_id=alert_id,
+                            confidence=1.0,
+                            camera_id=cam.camera_id,
+                            camera_name=cam.name,
+                        )
+                    except Exception:
+                        logger.exception("[camera_heartbeat] failed to dispatch email notification for %s", cam.camera_id)
 
                 ws_manager.broadcast_threadsafe(
                     "camera.offline",

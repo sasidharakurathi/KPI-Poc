@@ -3,8 +3,8 @@
 Field names/values match the frontend's real contract exactly
 (`vision-ai-frontend/src/types/domain.ts` AuditLogEntry/AuditEntity/
 AuditAction) - entity is "camera" | "kpi_model" | "user" | "role" (no
-"config": Priorities/Zones/EmailServers/KpiModelCatalog are explicitly out
-of audit-log scope, matching the frontend mock's own collections split).
+"config": Priorities/Zones/EmailServers are explicitly out of audit-log
+scope, matching the frontend mock's own collections split).
 Configuration (Phase 1) writes are deliberately not audited for the same
 reason. "kpi_model" has no current producer - it's Phase 3's KPI Management
 capability list, which doesn't exist in this backend yet.

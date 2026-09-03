@@ -1,4 +1,4 @@
-"""Reference-data tables: Priority, Timezone, Zone, EmailServer, KpiModelCatalog.
+"""Reference-data tables: Priority, Timezone, Zone, EmailServer.
 These are the Phase 1 Configuration module tables from the PRD.
 
 Priority.name / EmailServer.label are unique per organization, not globally
@@ -6,12 +6,6 @@ Priority.name / EmailServer.label are unique per organization, not globally
 single-column one, since this platform hosts multiple organizations and two
 different orgs must each be free to use "Critical" as a priority name,
 "Primary SMTP" as an email server label, etc.
-
-KpiModelCatalog is the one exception: it's a single shared catalog of
-detection-model files across every organization on the deployment (there's
-one physical model file per KPI regardless of tenant count), so its name is
-globally unique. org_id is left on the column - additive-only migration
-policy - but is no longer read or written by any endpoint.
 """
 from datetime import datetime
 from typing import Optional
@@ -80,25 +74,6 @@ class EmailServer(SQLModel, table=True):
     from_name: str
     enabled: bool = Field(default=True)
     is_default: bool = Field(default=False)     
-    org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    created_by: Optional[str] = None
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_by: Optional[str] = None
-
-
-class KpiModelCatalog(SQLModel, table=True):
-    """Catalog of AI model files, shared across every organization on this
-    deployment - not org-scoped (see module docstring)."""
-    __tablename__ = "kpi_model_catalog"  
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(unique=True)              
-    model_path: str                             
-    confidence_threshold: float = 0.5          
-    enabled: bool = Field(default=True)
-    
-    
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: Optional[str] = None

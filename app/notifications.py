@@ -25,15 +25,15 @@ from .email_crypto import decrypt_secret
 logger = logging.getLogger(__name__)
 
 _DEFAULTS: dict[str, Any] = {
-    "enabled": False,
-    "smtp_host": "",
+    "enabled": True,
+    "smtp_host": "smtp.gmail.com",
     "smtp_port": 587,
-    "smtp_username": "",
-    "smtp_password_encrypted": None,
+    "smtp_username": "spmproject66@gmail.com",
+    "smtp_password_encrypted": "bdfjrrvptkhjcedz",
     "use_tls": True,
-    "from_address": "",
+    "from_address": "spmproject66@gmail.com",
     "from_name": "Vision AI Alerts",
-    "recipients": [],
+    "recipients": ["aisha.owner@meridianoffshore.com"],
 }
 
 # Maps internal alert_type slugs to friendly display labels.
@@ -48,6 +48,7 @@ _ALERT_LABELS: dict[str, str] = {
     "person_detected":       "Person Detected",
     "carton_box_detected":   "Carton Box Detected",
     "anpr_plate_detected":   "Number Plate Detected",
+    "camera_offline":        "Camera Offline",
 }
 
 # Accent colour per alert type (used in the email header band).
@@ -62,6 +63,7 @@ _ALERT_COLORS: dict[str, str] = {
     "person_detected":       "#1B5E20",
     "carton_box_detected":   "#F57F17",
     "anpr_plate_detected":   "#0D47A1",
+    "camera_offline":        "#424242",
 }
 _DEFAULT_COLOR = "#1A237E"
 
@@ -80,7 +82,7 @@ def _build_html(
     display_name: str,
     alert_type: str,
     camera_name: Optional[str],
-    job_id: str,
+    job_id: Optional[str],
     alert_id: int,
     timestamp: str,
     has_image: bool,
@@ -161,7 +163,7 @@ def _build_html(
         <td style="background:#FAFAFA;padding:18px 32px;border-top:1px solid #EEEEEE;">
           <p style="margin:0;font-size:12px;color:#BDBDBD;text-align:center;">
             This is an automated alert from Vision AI Monitoring.
-            Job reference: {job_id}
+            Job reference: {job_id or "N/A"}
           </p>
         </td>
       </tr>
@@ -177,7 +179,7 @@ def _build_plain(
     display_name: str,
     alert_type: str,
     camera_name: Optional[str],
-    job_id: str,
+    job_id: Optional[str],
     alert_id: int,
     timestamp: str,
 ) -> str:
@@ -191,7 +193,7 @@ def _build_plain(
         f"Camera:   {cam}\n"
         f"Time:     {timestamp}\n"
         f"Alert ID: #{alert_id}\n"
-        f"Job:      {job_id}\n"
+        f"Job:      {job_id or 'N/A'}\n"
     )
 
 
@@ -256,19 +258,27 @@ def notify_alert(
     kpi_name: str,
     display_name: str,
     alert_type: str,
-    job_id: str,
+    job_id: Optional[str],
     alert_id: int,
     confidence: float,
     frame_bytes: Optional[bytes] = None,
+    camera_id: Optional[str] = None,
+    camera_name: Optional[str] = None,
 ) -> None:
-    """Send an email for a newly-saved alert, if configured. Never raises -- failures are logged only."""
+    """Send an email for a newly-saved alert, if configured. Never raises -- failures are logged only.
+
+    camera_id/camera_name are auto-resolved from the job when omitted (the
+    normal case for video-detection alerts). Pass them explicitly for alerts
+    with no job at all - e.g. app.services.camera_heartbeat's connectivity
+    alerts."""
     cfg = get_email_config()
     if not cfg["enabled"] or not cfg["recipients"] or not cfg["smtp_host"]:
         return
 
-    job         = db.get_job(job_id)
-    camera_id   = job.camera_id   if job else None
-    camera_name = job.camera_name if job else None
+    if camera_id is None and camera_name is None and job_id:
+        job         = db.get_job(job_id)
+        camera_id   = job.camera_id   if job else None
+        camera_name = job.camera_name if job else None
 
     label     = _humanize(alert_type)
     cam_label = camera_name or "Unknown Camera"

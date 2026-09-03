@@ -6,8 +6,8 @@ Implements:
 Writing to audit_logs is done via app.services.audit_service.log_action(),
 called from every Camera/Role/User create/update/delete/enable/disable
 (app.services.camera_service/role_service/user_service). Priorities/Zones/
-EmailServers/KpiModelCatalog (Phase 1) are deliberately not audited, matching
-the frontend's own audit-log scope.
+EmailServers (Phase 1) are deliberately not audited, matching the frontend's
+own audit-log scope.
 
 No zone-scoping - require_permission("audit_log", "view") is the only gate
 (see app.services.audit_service's module docstring for why).

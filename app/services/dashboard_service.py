@@ -20,7 +20,6 @@ from sqlalchemy import func as _func
 from sqlmodel import Session, select
 
 from app.db.models import Alert, Camera, Priority, Zone
-from app.db.models.domain_config import KpiModelCatalog
 from app.db.models.kpi_configuration import KPIConfiguration
 from app.schemas.dashboard import (
     AlertChartPoint, AlertChartResponse, DashboardCameraItem,
@@ -72,12 +71,6 @@ def get_summary(db: Session, user: dict) -> DashboardSummaryResponse:
 
     total_zones = len(db.exec(select(Zone).where(Zone.org_id == org_id)).all())
 
-    active_kpi_models = db.exec(
-        select(_func.count()).select_from(KpiModelCatalog).where(
-            KpiModelCatalog.enabled == True,
-        )
-    ).one()
-
     active_kpis = db.exec(
         select(_func.count()).select_from(KPIConfiguration).where(
             KPIConfiguration.enable_status == True,
@@ -90,7 +83,6 @@ def get_summary(db: Session, user: dict) -> DashboardSummaryResponse:
         inactive_cameras=status_counts.get("inactive", 0),
         pending_cameras=status_counts.get("pending", 0),
         total_zones=total_zones,
-        active_kpi_models=active_kpi_models,
         active_kpis=active_kpis,
         total_alerts=len(alerts),
         alerts_last_24h=alerts_last_24h,

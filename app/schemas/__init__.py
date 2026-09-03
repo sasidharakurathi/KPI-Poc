@@ -10,7 +10,6 @@ from .camera import (
 )
 from .config import (
     EmailServerCreate, EmailServerResponse, EmailServerUpdate,
-    KpiModelCreate, KpiModelResponse,
     PriorityCreate, PriorityResponse,
     ZoneCreate, ZoneResponse,
 )
@@ -32,7 +31,6 @@ __all__ = [
     "CameraCreate", "CameraKPIDetail", "CameraListItem",
     "CameraListResponse", "CameraResponse", "CameraUpdate",
     "EmailServerCreate", "EmailServerResponse", "EmailServerUpdate",
-    "KpiModelCreate", "KpiModelResponse",
     "PriorityCreate", "PriorityResponse",
     "ZoneCreate", "ZoneResponse",
     "EmailLogItem", "EmailLogsResponse",
