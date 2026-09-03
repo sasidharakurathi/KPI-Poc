@@ -1,13 +1,17 @@
-"""KPI detection alert emails - reads SMTP config from the legacy
-Configuration table (key "email", managed via /api/settings/email), which is
-tied to the video pipeline and out of scope for this PRD phase (see PRD
-Cross-Cutting Notes: "the existing GPU/CPU-flexible inference pipeline is
-unaffected by this phase").
+"""KPI detection alert emails.
 
-This is a SEPARATE system from account/transactional email (activation,
-password reset, user onboarding) - those all go through
-app.services.email_service, backed by the EmailServer table instead. Do not
-add new callers here for anything account-related.
+Recipients and SMTP config are both resolved live from the database for the
+alert's own organization: recipients from Role.kpi_names (which users' roles
+are allowed to see this KPI - see app.services.kpi_role_scope), and SMTP
+config from that org's active EmailServer row (is_default=True, enabled=True
+- see app.services.email_service). No hardcoded fallback of either kind -
+if the org has no default EmailServer configured, sending is skipped and
+logged as a failed EmailLog rather than silently using some other org's or a
+built-in server.
+
+This module owns its own MIME-building (inline detection-frame image support
+that app.services.email_service's account-email sender doesn't need) but
+sends through the same EmailServer credentials/connection logic.
 """
 import logging
 import smtplib
@@ -17,24 +21,15 @@ from datetime import datetime, timezone
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Any, Optional
+from typing import Optional
 
 from . import db
+from .db.models import Alert, EmailServer
 from .email_crypto import decrypt_secret
+from .services.email_service import try_get_default_email_server
+from .services.kpi_role_scope import eligible_recipients_for_alert
 
 logger = logging.getLogger(__name__)
-
-_DEFAULTS: dict[str, Any] = {
-    "enabled": True,
-    "smtp_host": "smtp.gmail.com",
-    "smtp_port": 587,
-    "smtp_username": "spmproject66@gmail.com",
-    "smtp_password_encrypted": "bdfjrrvptkhjcedz",
-    "use_tls": True,
-    "from_address": "spmproject66@gmail.com",
-    "from_name": "Vision AI Alerts",
-    "recipients": ["aisha.owner@meridianoffshore.com"],
-}
 
 # Maps internal alert_type slugs to friendly display labels.
 _ALERT_LABELS: dict[str, str] = {
@@ -66,12 +61,6 @@ _ALERT_COLORS: dict[str, str] = {
     "camera_offline":        "#424242",
 }
 _DEFAULT_COLOR = "#1A237E"
-
-
-def get_email_config() -> dict[str, Any]:
-    """Stored config merged over defaults - always returns a complete dict."""
-    stored = db.get_config("email") or {}
-    return {**_DEFAULTS, **stored}
 
 
 def _humanize(alert_type: str) -> str:
@@ -198,24 +187,25 @@ def _build_plain(
 
 
 def _build_message(
-    cfg: dict,
+    server: EmailServer,
+    recipients: list[str],
     subject: str,
     plain: str,
     html: str,
     frame_bytes: Optional[bytes] = None,
 ) -> MIMEMultipart:
     from_addr = (
-        f"{cfg['from_name']} <{cfg['from_address']}>"
-        if cfg.get("from_name") else cfg["from_address"]
+        f"{server.from_name} <{server.from_address}>"
+        if server.from_name else server.from_address
     )
-    recipients = ", ".join(cfg["recipients"])
+    to_header = ", ".join(recipients)
 
     if frame_bytes:
         # multipart/related wraps alternative + inline image
         outer = MIMEMultipart("related")
         outer["Subject"] = subject
         outer["From"]    = from_addr
-        outer["To"]      = recipients
+        outer["To"]      = to_header
 
         alt = MIMEMultipart("alternative")
         alt.attach(MIMEText(plain, "plain"))
@@ -231,27 +221,27 @@ def _build_message(
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"]    = from_addr
-        msg["To"]      = recipients
+        msg["To"]      = to_header
         msg.attach(MIMEText(plain, "plain"))
         msg.attach(MIMEText(html,  "html"))
         return msg
 
 
-def _send(cfg: dict, msg: MIMEMultipart) -> None:
-    password = decrypt_secret(cfg["smtp_password_encrypted"]) if cfg["smtp_password_encrypted"] else ""
+def _send(server: EmailServer, recipients: list[str], msg: MIMEMultipart) -> None:
+    password = decrypt_secret(server.password_encrypted) if server.password_encrypted else ""
     context  = ssl.create_default_context()
 
-    if cfg["use_tls"]:
-        with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"], timeout=10) as server:
-            server.starttls(context=context)
-            if cfg["smtp_username"]:
-                server.login(cfg["smtp_username"], password)
-            server.sendmail(cfg["from_address"], cfg["recipients"], msg.as_string())
+    if server.use_tls:
+        with smtplib.SMTP(server.smtp_host, server.smtp_port, timeout=10) as smtp:
+            smtp.starttls(context=context)
+            if server.username:
+                smtp.login(server.username, password)
+            smtp.sendmail(server.from_address, recipients, msg.as_string())
     else:
-        with smtplib.SMTP_SSL(cfg["smtp_host"], cfg["smtp_port"], timeout=10, context=context) as server:
-            if cfg["smtp_username"]:
-                server.login(cfg["smtp_username"], password)
-            server.sendmail(cfg["from_address"], cfg["recipients"], msg.as_string())
+        with smtplib.SMTP_SSL(server.smtp_host, server.smtp_port, timeout=10, context=context) as smtp:
+            if server.username:
+                smtp.login(server.username, password)
+            smtp.sendmail(server.from_address, recipients, msg.as_string())
 
 
 def notify_alert(
@@ -265,14 +255,22 @@ def notify_alert(
     camera_id: Optional[str] = None,
     camera_name: Optional[str] = None,
 ) -> None:
-    """Send an email for a newly-saved alert, if configured. Never raises -- failures are logged only.
+    """Send an email for a newly-saved alert to every user whose role can see
+    this KPI (see app.services.kpi_role_scope.eligible_recipients_for_alert),
+    via the alert's organization's active EmailServer. Never raises -
+    failures are logged only.
 
     camera_id/camera_name are auto-resolved from the job when omitted (the
     normal case for video-detection alerts). Pass them explicitly for alerts
     with no job at all - e.g. app.services.camera_heartbeat's connectivity
     alerts."""
-    cfg = get_email_config()
-    if not cfg["enabled"] or not cfg["recipients"] or not cfg["smtp_host"]:
+    with db.get_session_ctx() as session:
+        alert_row = session.get(Alert, alert_id)
+        org_id = alert_row.org_id if alert_row else None
+        recipients = eligible_recipients_for_alert(session, org_id, kpi_name)
+        server = try_get_default_email_server(session, org_id)
+
+    if not recipients:
         return
 
     if camera_id is None and camera_name is None and job_id:
@@ -285,83 +283,39 @@ def notify_alert(
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     subject   = f"[Vision AI] {label} - {cam_label}"
 
+    if server is None:
+        logger.warning(
+            f"[email] no default email server configured for org {org_id} - "
+            f"skipping notification for alert #{alert_id} ({kpi_name})"
+        )
+        db.create_email_log(
+            status="failed", subject=subject, recipients=recipients,
+            alert_id=alert_id, kpi_name=kpi_name, alert_type=alert_type,
+            camera_id=camera_id, camera_name=camera_name,
+            error="No default email server configured for this organization.",
+        )
+        return
+
     plain = _build_plain(display_name, alert_type, camera_name, job_id, alert_id, timestamp)
     html  = _build_html(display_name, alert_type, camera_name, job_id, alert_id, timestamp,
                         has_image=bool(frame_bytes))
-    msg   = _build_message(cfg, subject, plain, html, frame_bytes)
+    msg   = _build_message(server, recipients, subject, plain, html, frame_bytes)
 
     def _worker() -> None:
         try:
-            _send(cfg, msg)
-            logger.info(f"[email] sent notification for alert #{alert_id} ({kpi_name})")
+            _send(server, recipients, msg)
+            logger.info(f"[email] sent notification for alert #{alert_id} ({kpi_name}) to {len(recipients)} recipient(s)")
             db.create_email_log(
-                status="sent", subject=subject, recipients=cfg["recipients"],
+                status="sent", subject=subject, recipients=recipients,
                 alert_id=alert_id, kpi_name=kpi_name, alert_type=alert_type,
                 camera_id=camera_id, camera_name=camera_name,
             )
         except Exception as exc:
             logger.exception(f"[email] failed to send notification for alert #{alert_id} ({kpi_name})")
             db.create_email_log(
-                status="failed", subject=subject, recipients=cfg["recipients"],
+                status="failed", subject=subject, recipients=recipients,
                 alert_id=alert_id, kpi_name=kpi_name, alert_type=alert_type,
                 camera_id=camera_id, camera_name=camera_name, error=str(exc),
             )
 
     threading.Thread(target=_worker, daemon=True, name="email-notify").start()
-
-
-def send_test_email(cfg: Optional[dict] = None) -> None:
-    """Synchronous send used by the admin UI's test button - raises on failure."""
-    cfg       = cfg or get_email_config()
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    subject   = "[Vision AI] Test email"
-    plain = (
-        "Vision AI Monitoring\n"
-        "This is a test email. If you received it, SMTP is configured correctly.\n"
-        f"Sent at: {timestamp}"
-    )
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:0;background:#F5F5F5;font-family:Arial,Helvetica,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F5F5;padding:32px 0;">
-  <tr><td align="center">
-    <table width="620" cellpadding="0" cellspacing="0"
-           style="background:#FFFFFF;border-radius:12px;overflow:hidden;
-                  box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-      <tr>
-        <td style="background:#1A237E;padding:28px 32px;">
-          <p style="margin:0;color:rgba(255,255,255,0.75);font-size:12px;
-                    letter-spacing:1px;text-transform:uppercase;">Vision AI Monitoring</p>
-          <h1 style="margin:6px 0 0;color:#FFFFFF;font-size:22px;font-weight:700;">
-            Email Configuration Test</h1>
-        </td>
-      </tr>
-      <tr>
-        <td style="padding:32px;">
-          <p style="margin:0;font-size:16px;color:#212121;">
-            Your email alert configuration is working correctly.</p>
-          <p style="margin:16px 0 0;font-size:14px;color:#757575;">
-            You will receive alerts like this whenever Vision AI detects an event on your cameras.</p>
-          <p style="margin:16px 0 0;font-size:13px;color:#BDBDBD;">Sent at: {timestamp}</p>
-        </td>
-      </tr>
-      <tr>
-        <td style="background:#FAFAFA;padding:18px 32px;border-top:1px solid #EEEEEE;">
-          <p style="margin:0;font-size:12px;color:#BDBDBD;text-align:center;">
-            This is an automated message from Vision AI Monitoring.</p>
-        </td>
-      </tr>
-    </table>
-  </td></tr>
-</table>
-</body>
-</html>"""
-
-    msg = _build_message(cfg, subject, plain, html)
-    try:
-        _send(cfg, msg)
-        db.create_email_log(status="sent", subject=subject, recipients=cfg["recipients"], alert_type="test")
-    except Exception as exc:
-        db.create_email_log(status="failed", subject=subject, recipients=cfg["recipients"], alert_type="test", error=str(exc))
-        raise

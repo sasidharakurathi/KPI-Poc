@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.db.models import EmailServer, Role, User, Zone
+from app.kpis import list_registered_names
 from app.schemas.role import RoleInput, RoleResponse
 from app.services import audit_service
 
@@ -38,6 +39,7 @@ def _to_role_response(role: Role) -> RoleResponse:
             str(role.default_email_server_id) if role.default_email_server_id is not None else None
         ),
         zone_ids=[str(z) for z in (role.zone_ids or [])],
+        kpi_names=list(role.kpi_names or []),
         is_system=role.is_system,
         created_at=role.created_at.isoformat(),
     )
@@ -70,7 +72,9 @@ def user_counts(db: Session, org_id: Optional[int]) -> dict[str, int]:
     return counts
 
 
-def _validate_references(db: Session, org_id: Optional[int], payload: RoleInput) -> tuple[Optional[int], list[int]]:
+def _validate_references(
+    db: Session, org_id: Optional[int], payload: RoleInput,
+) -> tuple[Optional[int], list[int], list[str]]:
     email_server_id = _to_int_id(payload.default_email_server_id, "default_email_server_id")
     if email_server_id is not None:
         server = db.get(EmailServer, email_server_id)
@@ -87,7 +91,12 @@ def _validate_references(db: Session, org_id: Optional[int], payload: RoleInput)
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"zone_ids contains an unknown zone: {raw!r}")
         zone_ids.append(zid)
 
-    return email_server_id, zone_ids
+    known_kpis = set(list_registered_names())
+    for name in payload.kpi_names:
+        if name not in known_kpis:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"kpi_names contains an unknown KPI: {name!r}")
+
+    return email_server_id, zone_ids, list(payload.kpi_names)
 
 
 def create_role(db: Session, user: dict, payload: RoleInput) -> RoleResponse:
@@ -97,7 +106,7 @@ def create_role(db: Session, user: dict, payload: RoleInput) -> RoleResponse:
     if any(r.name.strip().lower() == name.lower() for r in existing):
         raise HTTPException(status.HTTP_409_CONFLICT, f'A role named "{name}" already exists.')
 
-    email_server_id, zone_ids = _validate_references(db, org_id, payload)
+    email_server_id, zone_ids, kpi_names = _validate_references(db, org_id, payload)
 
     role = Role(
         name=name,
@@ -105,6 +114,7 @@ def create_role(db: Session, user: dict, payload: RoleInput) -> RoleResponse:
         permissions=payload.permissions,
         default_email_server_id=email_server_id,
         zone_ids=zone_ids,
+        kpi_names=kpi_names,
         is_system=False,
         org_id=org_id,
     )
@@ -139,13 +149,14 @@ def update_role(db: Session, user: dict, role_id: int, payload: RoleInput) -> Ro
     if any(r.name.strip().lower() == name.lower() for r in others):
         raise HTTPException(status.HTTP_409_CONFLICT, f'A role named "{name}" already exists.')
 
-    email_server_id, zone_ids = _validate_references(db, org_id, payload)
+    email_server_id, zone_ids, kpi_names = _validate_references(db, org_id, payload)
 
     role.name = name
     role.description = payload.description.strip()
     role.permissions = payload.permissions
     role.default_email_server_id = email_server_id
     role.zone_ids = zone_ids
+    role.kpi_names = kpi_names
     db.add(role)
     try:
         db.commit()

@@ -11,6 +11,12 @@ zone-restricted role - there's no zone to prove they're allowed to see it,
 so the safe default is to hide rather than show. Unrestricted roles (empty
 zone_ids) and the built-in Owner role see everything.
 
+KPI-scoping: a role with a non-empty kpi_names restriction only sees alerts
+for those KPIs (plus "system"/connectivity alerts, always visible to any
+role that can see alerts at all) - see app.services.kpi_role_scope. Applied
+as an AND alongside zone-scoping, same as zone-scoping is AND'd with the
+org boundary.
+
 A caller who can't see an alert gets a plain 404 (not 403) - same
 enumeration-safety convention used everywhere else org/zone-scoping applies
 in this app (e.g. Phase 2's camera lookups): the response is identical
@@ -28,6 +34,7 @@ from sqlmodel import Session
 from app.db import get_alert as db_get_alert
 from app.db import query_alerts as db_query_alerts
 from app.schemas.alert import AlertResponse, AlertsResponse
+from app.services.kpi_role_scope import allowed_kpi_names_for_user as _allowed_kpi_names
 from app.services.zone_scope import allowed_camera_ids_for_user as _allowed_camera_ids
 
 
@@ -40,10 +47,12 @@ def list_alerts(
     limit: int = 100, offset: int = 0,
 ) -> AlertsResponse:
     allowed = _allowed_camera_ids(user, db)
+    allowed_kpis = _allowed_kpi_names(user, db)
     rows, total = db_query_alerts(
         job_id=job_id, kpi_name=kpi_name, camera_id=camera_id, alert_type=alert_type,
         date_from=date_from, date_to=date_to, sort_by=sort_by, sort_dir=sort_dir,
-        limit=limit, offset=offset, allowed_camera_ids=allowed, org_id=user.get("org_id"),
+        limit=limit, offset=offset, allowed_camera_ids=allowed, allowed_kpi_names=allowed_kpis,
+        org_id=user.get("org_id"),
     )
     return AlertsResponse(count=len(rows), total=total, alerts=rows)
 
@@ -58,6 +67,10 @@ def _get_visible_alert_or_404(db: Session, user: dict, alert_id: int) -> dict:
 
     allowed = _allowed_camera_ids(user, db)
     if allowed is not None and alert.get("camera_id") not in allowed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Alert '{alert_id}' not found.")
+
+    allowed_kpis = _allowed_kpi_names(user, db)
+    if allowed_kpis is not None and alert.get("kpi_name") not in allowed_kpis:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Alert '{alert_id}' not found.")
     return alert
 

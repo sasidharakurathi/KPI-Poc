@@ -24,18 +24,22 @@ logger = logging.getLogger(__name__)
 
 class _Connection:
     """One live WebSocket connection plus the org it authenticated as and
-    the zone restriction it was authenticated with at connect time
-    (allowed_camera_ids=None = unrestricted *within that org*, not
-    unrestricted across every org - see can_see)."""
+    the zone/KPI restrictions it was authenticated with at connect time
+    (allowed_camera_ids/allowed_kpi_names=None = unrestricted *within that
+    org*, not unrestricted across every org - see can_see)."""
 
-    __slots__ = ("websocket", "org_id", "allowed_camera_ids")
+    __slots__ = ("websocket", "org_id", "allowed_camera_ids", "allowed_kpi_names")
 
-    def __init__(self, websocket, org_id: Optional[int], allowed_camera_ids: Optional[set[str]]) -> None:
+    def __init__(
+        self, websocket, org_id: Optional[int],
+        allowed_camera_ids: Optional[set[str]], allowed_kpi_names: Optional[set[str]] = None,
+    ) -> None:
         self.websocket = websocket
         self.org_id = org_id
         self.allowed_camera_ids = allowed_camera_ids
+        self.allowed_kpi_names = allowed_kpi_names
 
-    def can_see(self, camera_id: Optional[str], org_id: Optional[int]) -> bool:
+    def can_see(self, camera_id: Optional[str], org_id: Optional[int], kpi_name: Optional[str] = None) -> bool:
         """org_id must match first - this is the real tenant boundary. A
         connection with no resolvable org (shouldn't normally happen; every
         authenticated user belongs to one) never sees anything rather than
@@ -45,12 +49,20 @@ class _Connection:
         set - a camera-less event (e.g. an alert from an ad-hoc video upload
         with no registered camera) is invisible to it, matching the same
         "hide camera-less alerts from zone-restricted roles" rule applied to
-        the REST endpoints."""
+        the REST endpoints. Same idea for KPI-restriction: an event with no
+        kpi_name (e.g. camera.offline/camera.online, which carry no kpi_name
+        at all) is never hidden by a KPI restriction - only alert.created
+        events carry one, and a KPI-restricted connection only sees those
+        for KPIs in its allowed set."""
         if self.org_id is None or org_id is None or self.org_id != org_id:
             return False
-        if self.allowed_camera_ids is None:
-            return True
-        return camera_id is not None and camera_id in self.allowed_camera_ids
+        if self.allowed_camera_ids is not None:
+            if camera_id is None or camera_id not in self.allowed_camera_ids:
+                return False
+        if self.allowed_kpi_names is not None and kpi_name is not None:
+            if kpi_name not in self.allowed_kpi_names:
+                return False
+        return True
 
 
 class AlertsWebSocketManager:
@@ -65,8 +77,11 @@ class AlertsWebSocketManager:
         thread."""
         self._loop = loop
 
-    async def connect(self, websocket, org_id: Optional[int], allowed_camera_ids: Optional[set[str]]) -> _Connection:
-        conn = _Connection(websocket, org_id, allowed_camera_ids)
+    async def connect(
+        self, websocket, org_id: Optional[int],
+        allowed_camera_ids: Optional[set[str]], allowed_kpi_names: Optional[set[str]] = None,
+    ) -> _Connection:
+        conn = _Connection(websocket, org_id, allowed_camera_ids, allowed_kpi_names)
         async with self._lock:
             self._connections.append(conn)
         return conn
@@ -77,16 +92,17 @@ class AlertsWebSocketManager:
                 self._connections.remove(conn)
 
     async def broadcast(
-        self, event_type: str, payload: dict, camera_id: Optional[str] = None, org_id: Optional[int] = None,
+        self, event_type: str, payload: dict,
+        camera_id: Optional[str] = None, org_id: Optional[int] = None, kpi_name: Optional[str] = None,
     ) -> None:
         """Sends {"event": event_type, "data": payload} to every connection
-        in the same org whose zone restriction allows it to see this
-        camera_id. org_id identifies which org this event belongs to - a
-        camera-less event with no resolvable org (shouldn't normally happen)
-        reaches no one rather than broadcasting to every org."""
+        in the same org whose zone/KPI restriction allows it to see this
+        camera_id/kpi_name. org_id identifies which org this event belongs to
+        - a camera-less event with no resolvable org (shouldn't normally
+        happen) reaches no one rather than broadcasting to every org."""
         message = {"event": event_type, "data": payload}
         async with self._lock:
-            targets = [c for c in self._connections if c.can_see(camera_id, org_id)]
+            targets = [c for c in self._connections if c.can_see(camera_id, org_id, kpi_name)]
 
         stale: list[_Connection] = []
         for conn in targets:
@@ -98,7 +114,8 @@ class AlertsWebSocketManager:
             await self.disconnect(conn)
 
     def broadcast_threadsafe(
-        self, event_type: str, payload: dict, camera_id: Optional[str] = None, org_id: Optional[int] = None,
+        self, event_type: str, payload: dict,
+        camera_id: Optional[str] = None, org_id: Optional[int] = None, kpi_name: Optional[str] = None,
     ) -> None:
         """Safe to call from any thread, including the synchronous video
         pipeline's worker thread. Best-effort: if the websocket layer hasn't
@@ -109,7 +126,7 @@ class AlertsWebSocketManager:
             return
         try:
             asyncio.run_coroutine_threadsafe(
-                self.broadcast(event_type, payload, camera_id, org_id), self._loop
+                self.broadcast(event_type, payload, camera_id, org_id, kpi_name), self._loop
             )
         except Exception:
             logger.exception("[ws_manager] failed to schedule broadcast of '%s'", event_type)

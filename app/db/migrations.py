@@ -106,9 +106,10 @@ def _migrate_roles(engine) -> None:
             logger.info("[migrate] roles.role_name renamed to roles.name")
 
     _add_columns(engine, "roles", [
-        ("is_system", "BOOLEAN", " DEFAULT FALSE"),
-        ("org_id",    "INTEGER", ""),
-        ("zone_ids",  "JSON",    " DEFAULT '[]'"),
+        ("is_system",  "BOOLEAN", " DEFAULT FALSE"),
+        ("org_id",     "INTEGER", ""),
+        ("zone_ids",   "JSON",    " DEFAULT '[]'"),
+        ("kpi_names",  "JSON",    " DEFAULT '[]'"),
     ])
 
 

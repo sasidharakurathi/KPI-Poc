@@ -18,10 +18,7 @@ from .job import JobStatus, JobStatusResponse, UploadResponse
 from .kpi import KPIInfo, KPISettingsItem, KPISettingsResponse, RegisteredKPIsResponse
 from .organization import OrganizationResponse, OrganizationUpdate
 from .role import RoleInput, RoleResponse
-from .settings import (
-    EmailSettingsResponse, EmailSettingsUpdate,
-    TimezoneSettingsResponse, TimezoneSettingsUpdate,
-)
+from .settings import TimezoneSettingsResponse, TimezoneSettingsUpdate
 from .user import UserCreateInput, UserPasswordReset, UserResponse, UserStatusUpdate, UserUpdateInput
 
 __all__ = [
@@ -38,7 +35,6 @@ __all__ = [
     "KPIInfo", "KPISettingsItem", "KPISettingsResponse", "RegisteredKPIsResponse",
     "OrganizationResponse", "OrganizationUpdate",
     "RoleInput", "RoleResponse",
-    "EmailSettingsResponse", "EmailSettingsUpdate",
     "TimezoneSettingsResponse", "TimezoneSettingsUpdate",
     "UserCreateInput", "UserPasswordReset", "UserResponse", "UserStatusUpdate", "UserUpdateInput",
 ]

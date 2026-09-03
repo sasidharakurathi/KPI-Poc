@@ -13,7 +13,8 @@ filter every REST Alerts/Dashboard endpoint applies. Zone-scoping on top of
 that matches the REST endpoints exactly: a role with a non-empty zone_ids
 restriction only receives events for cameras in those zones within its own
 org (see app.services.zone_scope, shared with the REST Alerts/Dashboard
-endpoints).
+endpoints). Same for a role with a non-empty kpi_names restriction - it only
+receives alert.created events for those KPIs (see app.services.kpi_role_scope).
 
 Event contract (for the frontend team):
   {"event": "alert.created",  "data": <same shape as AlertResponse from GET /api/alerts/{id}>}
@@ -33,6 +34,7 @@ from sqlmodel import Session
 from app.auth.jwt_utils import InvalidTokenError, JWTNotConfigured, decode_access_token
 from app.db.engine import get_engine
 from app.db.models import Role, User
+from app.services.kpi_role_scope import allowed_kpi_names_for_role
 from app.services.ws_manager import ws_manager
 from app.services.zone_scope import allowed_camera_ids_for_role
 
@@ -75,9 +77,10 @@ async def alerts_websocket(websocket: WebSocket, token: str):
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid, expired, or unauthorized token.")
             return
         allowed_camera_ids = allowed_camera_ids_for_role(role, db)
+        allowed_kpi_names = allowed_kpi_names_for_role(role)
 
     await websocket.accept()
-    conn = await ws_manager.connect(websocket, user.org_id, allowed_camera_ids)
+    conn = await ws_manager.connect(websocket, user.org_id, allowed_camera_ids, allowed_kpi_names)
     try:
         while True:
             await websocket.receive_text()

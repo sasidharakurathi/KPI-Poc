@@ -18,7 +18,8 @@ class Role(SQLModel, table=True):
     default_email_server_id: Optional[int] = Field(default=None, foreign_key="email_servers.id")
     
     zone_ids: list = Field(default_factory=list, sa_column=Column(_JSON))
-    is_system: bool = Field(default=False)  
+    kpi_names: list = Field(default_factory=list, sa_column=Column(_JSON))
+    is_system: bool = Field(default=False)
     org_id: Optional[int] = Field(default=None, foreign_key="organizations.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     created_by: Optional[str] = None

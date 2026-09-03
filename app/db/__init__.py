@@ -94,7 +94,8 @@ def create_alert(
 
         payload = AlertResponse.model_validate(alert_dict).model_dump(mode="json")
         ws_manager.broadcast_threadsafe(
-            "alert.created", payload, camera_id=resolved_camera_id, org_id=resolved_org_id,
+            "alert.created", payload,
+            camera_id=resolved_camera_id, org_id=resolved_org_id, kpi_name=kpi_name,
         )
     except Exception:
         logger.exception("[db] failed to broadcast alert.created for alert %s", alert.id)
@@ -441,6 +442,7 @@ def query_alerts(
     limit: int = 200,
     offset: int = 0,
     allowed_camera_ids: Optional[set[str]] = None,
+    allowed_kpi_names: Optional[set[str]] = None,
     org_id: Optional[int] = None,
 ) -> tuple[list[dict], int]:
     """allowed_camera_ids: None = unrestricted (default, preserves existing
@@ -448,6 +450,11 @@ def query_alerts(
     non-None set restricts results to alerts whose camera_id is in it -
     Phase 4's zone-scoping (see app.services.alert_service), which also means
     camera-less alerts are excluded whenever a restriction is active.
+
+    allowed_kpi_names: None = unrestricted (default). A non-None set
+    restricts results to alerts whose kpi_name is in it - KPI-scoping (see
+    app.services.kpi_role_scope), applied as an AND alongside
+    allowed_camera_ids, not a substitute for it.
 
     org_id: None = unrestricted (default, preserves videos.py's existing
     job_id-scoped behavior - it has no caller org to filter by). Every
@@ -467,6 +474,9 @@ def query_alerts(
         if allowed_camera_ids is not None:
             stmt = stmt.where(Alert.camera_id.in_(allowed_camera_ids))
             count_stmt = count_stmt.where(Alert.camera_id.in_(allowed_camera_ids))
+        if allowed_kpi_names is not None:
+            stmt = stmt.where(Alert.kpi_name.in_(allowed_kpi_names))
+            count_stmt = count_stmt.where(Alert.kpi_name.in_(allowed_kpi_names))
         if job_id:
             stmt = stmt.where(Alert.job_id == job_id)
             count_stmt = count_stmt.where(Alert.job_id == job_id)

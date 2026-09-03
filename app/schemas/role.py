@@ -9,6 +9,9 @@ not the PRD-literal draft this file originally had. Notably:
     app.core.permissions' canonical vocabulary.
   - `zone_ids` and `default_email_server_id` are also string-typed at the API
     boundary, converted to/from int for storage.
+  - `kpi_names` follows zone_ids' own convention exactly: empty = unrestricted
+    (this role sees/receives every KPI's alerts), non-empty = restricted to
+    just those KPI names (see app.services.kpi_role_scope).
 """
 from typing import Optional
 
@@ -26,6 +29,7 @@ class RoleInput(BaseModel):
     permissions: dict[str, list[str]]
     default_email_server_id: Optional[str] = None
     zone_ids: list[str] = Field(default_factory=list)
+    kpi_names: list[str] = Field(default_factory=list)
 
     @field_validator("name")
     @classmethod
@@ -58,6 +62,18 @@ class RoleInput(BaseModel):
                 deduped.append(zid)
         return deduped
 
+    @field_validator("kpi_names")
+    @classmethod
+    def _dedupe_kpi_names(cls, v: list[str]) -> list[str]:
+        """Same rationale as _dedupe_zone_ids above - built from a multi-select."""
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for name in v:
+            if name not in seen:
+                seen.add(name)
+                deduped.append(name)
+        return deduped
+
 
 class RoleResponse(BaseModel):
     id: str
@@ -66,5 +82,6 @@ class RoleResponse(BaseModel):
     permissions: dict[str, list[str]]
     default_email_server_id: Optional[str] = None
     zone_ids: list[str]
+    kpi_names: list[str]
     is_system: bool
     created_at: str

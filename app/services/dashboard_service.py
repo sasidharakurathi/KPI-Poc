@@ -25,6 +25,7 @@ from app.schemas.dashboard import (
     AlertChartPoint, AlertChartResponse, DashboardCameraItem,
     DashboardCamerasResponse, DashboardSummaryResponse,
 )
+from app.services.kpi_role_scope import allowed_kpi_names_for_user
 from app.services.zone_scope import allowed_camera_ids_for_user
 from app.stream_recorder import stream_recorder_manager
 
@@ -56,9 +57,12 @@ def get_summary(db: Session, user: dict) -> DashboardSummaryResponse:
         priority_name_by_camera[c.camera_id] = priorities_by_id.get(c.priority_id, "Unassigned")
 
     allowed = allowed_camera_ids_for_user(user, db)
+    allowed_kpis = allowed_kpi_names_for_user(user, db)
     alerts_stmt = select(Alert).where(Alert.org_id == org_id)
     if allowed is not None:
         alerts_stmt = alerts_stmt.where(Alert.camera_id.in_(allowed))
+    if allowed_kpis is not None:
+        alerts_stmt = alerts_stmt.where(Alert.kpi_name.in_(allowed_kpis))
     alerts = db.exec(alerts_stmt).all()
 
     now = datetime.utcnow()
@@ -105,11 +109,13 @@ def get_alert_chart(
     to_dt = date_to or datetime.utcnow()
     from_dt = date_from or (to_dt - timedelta(days=DEFAULT_CHART_WINDOW_DAYS))
 
-    alerts = db.exec(
-        select(Alert).where(
-            Alert.camera_id == camera_id, Alert.created_at >= from_dt, Alert.created_at <= to_dt,
-        )
-    ).all()
+    chart_stmt = select(Alert).where(
+        Alert.camera_id == camera_id, Alert.created_at >= from_dt, Alert.created_at <= to_dt,
+    )
+    allowed_kpis = allowed_kpi_names_for_user(user, db)
+    if allowed_kpis is not None:
+        chart_stmt = chart_stmt.where(Alert.kpi_name.in_(allowed_kpis))
+    alerts = db.exec(chart_stmt).all()
 
     counts: dict[tuple[str, str], int] = defaultdict(int)
     for a in alerts:
