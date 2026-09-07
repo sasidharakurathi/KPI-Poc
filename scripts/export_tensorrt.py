@@ -24,6 +24,13 @@ JOBS: list[tuple[str, int, bool, int]] = [
     ("app/models/yolo26m-pose.pt", 640, True, 4),        # dynamic HxW (512/640 shared) + dynamic batch
     ("app/models/anpr_lpr.pt", 640, True, 4),            # currently disabled, kept in sync in case re-enabled
     ("app/models/carton-box-detection.pt", 640, True, 4),  # currently disabled, kept in sync in case re-enabled
+    ("app/models/density-occupancy.pt", 640, True, 4),     # DensityOccupancyKPI, model.track()
+    ("app/models/floating.pt", 640, True, 4),              # FloatingKPI, model.predict()
+    ("app/models/vehicle-detection-speed.pt", 640, True, 4),  # SpeedTrackerKPI, model()
+    ("app/models/smoking.pt", 640, True, 4),
+    ("app/models/mobile-phone-usage.pt", 640, True, 4),
+    ("app/models/falling-pose.pt", 640, True, 4),
+    ("app/models/yolo26s.pt", 640, True, 4),
 ]
 
 
