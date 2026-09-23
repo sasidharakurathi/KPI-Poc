@@ -12,15 +12,23 @@ def register_kpi(cls: Type["BaseKPI"]) -> Type["BaseKPI"]:
     return cls
 
 
+def enabled_kpi_names() -> set[str]:
+    """KPI names switched on in the KPI Management DB table
+    (KPIConfiguration.enable_status) - the single source of truth for which
+    KPIs run. A registered KPI with no row is treated as disabled."""
+    from sqlmodel import select
+    from ..db.engine import get_session_ctx
+    from ..db.models.kpi_configuration import KPIConfiguration
+
+    with get_session_ctx() as session:
+        rows = session.exec(select(KPIConfiguration).where(KPIConfiguration.enable_status == True)).all()
+        return {r.kpi_name for r in rows}
+
+
 def get_registered_kpis() -> list["BaseKPI"]:
-    """Fresh instances of every registered KPI with enabled=true (or no 'enabled' key) in config.json."""
-    from ..config_loader import get_kpi_param
-    instances = []
-    for cls in _registry.values():
-        enabled = get_kpi_param(cls.__name__, "enabled", True)
-        if enabled:
-            instances.append(cls())
-    return instances
+    """Fresh instances of every registered KPI that is enabled in the DB."""
+    enabled = enabled_kpi_names()
+    return [cls() for name, cls in _registry.items() if name in enabled]
 
 
 def list_registered_names() -> list[str]:

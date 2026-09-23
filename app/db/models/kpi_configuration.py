@@ -7,11 +7,13 @@ from sqlalchemy import JSON as _JSON
 
 class KPIConfiguration(SQLModel, table=True):
     """Phase 3 (KPI Management). kpi_name is gated to real registered
-    detectors (app.kpis.registry) - see app.api.v1.endpoints.kpis. Writing
-    enable_status/parameters now also writes through to config.json (see
-    app.config_loader.update_kpi_config), which is what the real detection
-    pipeline actually reads; assigned_models does not write through (no
-    sensible 1:1 mapping to config.json's single model_path per KPI).
+    detectors (app.kpis.registry) - see app.api.v1.endpoints.kpis.
+    enable_status is the single source of truth for whether a KPI runs (read
+    by app.kpis.registry.enabled_kpi_names); config.json holds no enabled
+    flag. Writing parameters also writes through to config.json (see
+    app.config_loader.update_kpi_config), which is where detectors read their
+    tuning params from; assigned_models does not write through (no sensible
+    1:1 mapping to config.json's single model_path per KPI).
 
     One row per KPI, shared across every organization on this deployment -
     not org-scoped. There's a single real detection pipeline behind each KPI

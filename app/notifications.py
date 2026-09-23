@@ -67,6 +67,19 @@ def _humanize(alert_type: str) -> str:
     return _ALERT_LABELS.get(alert_type, alert_type.replace("_", " ").title())
 
 
+# PPE statuses (alert extra["status"]) -> what exactly is missing. Unknown
+# values map to None so an unrelated field can never leak into the email.
+_VIOLATION_TEXT: dict[str, str] = {
+    "NO VEST":   "Safety vest not detected",
+    "NO HELMET": "Safety helmet not detected",
+    "NO PPE":    "Safety helmet and vest not detected",
+}
+
+
+def violation_text(status: Optional[str]) -> Optional[str]:
+    return _VIOLATION_TEXT.get(status) if status else None
+
+
 def _build_html(
     display_name: str,
     alert_type: str,
@@ -75,10 +88,16 @@ def _build_html(
     alert_id: int,
     timestamp: str,
     has_image: bool,
+    violation: Optional[str] = None,
 ) -> str:
     label  = _humanize(alert_type)
     color  = _ALERT_COLORS.get(alert_type, _DEFAULT_COLOR)
     cam    = camera_name or "Unknown Camera"
+    violation_line = (
+        f'<p style="margin:10px 0 0;display:inline-block;background:rgba(0,0,0,0.18);'
+        f'color:#FFFFFF;font-size:15px;font-weight:700;padding:6px 12px;border-radius:6px;">'
+        f'{violation}</p>'
+    ) if violation else ""
     img_block = (
         '<tr><td style="padding:0 32px 24px;">'
         '<img src="cid:alert_frame" alt="Detection frame" '
@@ -103,6 +122,7 @@ def _build_html(
                     letter-spacing:1px;text-transform:uppercase;">Vision AI Monitoring</p>
           <h1 style="margin:6px 0 0;color:#FFFFFF;font-size:22px;font-weight:700;
                      line-height:1.3;">{label}</h1>
+          {violation_line}
         </td>
       </tr>
 
@@ -171,19 +191,23 @@ def _build_plain(
     job_id: Optional[str],
     alert_id: int,
     timestamp: str,
+    violation: Optional[str] = None,
 ) -> str:
     label = _humanize(alert_type)
     cam   = camera_name or "Unknown Camera"
-    return (
-        f"Vision AI Monitoring\n"
-        f"{'=' * 40}\n\n"
-        f"Alert:    {label}\n"
-        f"KPI:      {display_name}\n"
-        f"Camera:   {cam}\n"
-        f"Time:     {timestamp}\n"
-        f"Alert ID: #{alert_id}\n"
-        f"Job:      {job_id or 'N/A'}\n"
-    )
+    lines = [
+        "Vision AI Monitoring",
+        "=" * 40,
+        "",
+        f"Alert:    {label}",
+        *([f"Issue:    {violation}"] if violation else []),
+        f"KPI:      {display_name}",
+        f"Camera:   {cam}",
+        f"Time:     {timestamp}",
+        f"Alert ID: #{alert_id}",
+        f"Job:      {job_id or 'N/A'}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _build_message(
@@ -254,6 +278,7 @@ def notify_alert(
     frame_bytes: Optional[bytes] = None,
     camera_id: Optional[str] = None,
     camera_name: Optional[str] = None,
+    status: Optional[str] = None,
 ) -> None:
     """Send an email for a newly-saved alert to every user whose role can see
     this KPI (see app.services.kpi_role_scope.eligible_recipients_for_alert),
@@ -296,9 +321,10 @@ def notify_alert(
         )
         return
 
-    plain = _build_plain(display_name, alert_type, camera_name, job_id, alert_id, timestamp)
+    violation = violation_text(status)
+    plain = _build_plain(display_name, alert_type, camera_name, job_id, alert_id, timestamp, violation)
     html  = _build_html(display_name, alert_type, camera_name, job_id, alert_id, timestamp,
-                        has_image=bool(frame_bytes))
+                        has_image=bool(frame_bytes), violation=violation)
     msg   = _build_message(server, recipients, subject, plain, html, frame_bytes)
 
     def _worker() -> None:

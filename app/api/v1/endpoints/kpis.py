@@ -6,12 +6,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from app.config_loader import (
     get_all as get_full_config,
     get_kpi_config,
-    get_kpi_param,
     get_kpi_registry,
     reload as reload_config,
     update_kpi_config,
 )
 from app.kpis import get_registered_kpis, get_registry, list_registered_names
+from app.kpis.registry import enabled_kpi_names
 from app.schemas import KPIInfo, KPISettingsItem, KPISettingsResponse, RegisteredKPIsResponse
 from app.schemas.kpi import KpiCatalogResponse, KpiCatalogUpdate
 from app.db.models.kpi_configuration import KPIConfiguration
@@ -32,11 +32,12 @@ async def list_kpis():
 
 @router.get("/settings", response_model=KPISettingsResponse)
 async def list_kpi_settings():
+    enabled = enabled_kpi_names()
     items = [
         KPISettingsItem(
             name=cls.name,
             display_name=cls.display_name,
-            enabled=get_kpi_param(cls.__name__, "enabled", True),
+            enabled=cls.name in enabled,
             config=get_kpi_config(cls.__name__),
         )
         for cls in get_registry().values()
@@ -53,7 +54,7 @@ async def update_kpi_settings(name: str, updates: Annotated[dict[str, Any], Body
     return KPISettingsItem(
         name=cls.name,
         display_name=cls.display_name,
-        enabled=new_cfg.get("enabled", True),
+        enabled=cls.name in enabled_kpi_names(),
         config=new_cfg,
     )
 
@@ -155,7 +156,7 @@ async def toggle_kpi_catalog(
     session: DbSession,
     user: dict = Depends(require_permission("kpi_management", "edit")),
 ):
-    cls = _registered_class_or_404(name)
+    _registered_class_or_404(name)
     config = session.exec(
         select(KPIConfiguration).where(KPIConfiguration.kpi_name == name)
     ).first()
@@ -168,7 +169,5 @@ async def toggle_kpi_catalog(
     session.add(config)
     session.commit()
     session.refresh(config)
-
-    update_kpi_config(cls.__name__, {"enabled": config.enable_status})
 
     return _to_catalog_response(config)

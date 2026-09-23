@@ -16,6 +16,7 @@ ultralytics
 supervision
 shapely
 easyocr
+fast-plate-ocr[onnx-gpu]
 sqlmodel
 psycopg[binary]
 cryptography

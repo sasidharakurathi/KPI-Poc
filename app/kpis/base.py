@@ -174,6 +174,7 @@ class BaseKPI(ABC):
                 alert_id=alert_id,
                 confidence=float(p.confidence),
                 frame_bytes=frame_bytes,
+                status=(p.extra or {}).get("status"),
             )
         except Exception:
             logger.exception("[%s] failed to dispatch email notification", self.name)

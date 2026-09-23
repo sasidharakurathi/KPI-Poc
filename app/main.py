@@ -10,7 +10,7 @@ from .api.v1.router import api_router
 from .auth.middleware import JWTAuthMiddleware
 from .clip_processor import clip_processor
 from .config import settings
-from .config_loader import get_kpi_config, get_kpi_param, get_kpi_registry
+from .config_loader import get_kpi_config, get_kpi_registry
 from .db import init_db, get_config, set_config
 from .model_registry import preload_all
 from .services import camera_heartbeat
@@ -42,9 +42,11 @@ _KPI_LABELS: dict[int, str] = {
 
 def _enabled_model_paths() -> set[str]:
     from .kpis import get_registry
+    from .kpis.registry import enabled_kpi_names
+    enabled = enabled_kpi_names()
     paths: set[str] = set()
-    for cls in get_registry().values():
-        if not get_kpi_param(cls.__name__, "enabled", True):
+    for name, cls in get_registry().items():
+        if name not in enabled:
             continue
         cfg = get_kpi_config(cls.__name__)
         for key, value in cfg.items():

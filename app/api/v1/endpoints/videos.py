@@ -30,6 +30,7 @@ def _thin_then_run_pipeline(
     except Exception as exc:
         logger.error(f"[upload] job {job_id}: frame-thinning failed: {exc}", exc_info=True)
         job_manager.update(job_id, JobStatus.FAILED, error=f"frame-thinning failed: {exc}")
+        Path(thinned_path).unlink(missing_ok=True)
         return
     try:
         run_pipeline(job_id, thinned_path, kpi_names)
@@ -80,7 +81,8 @@ async def upload_video(
         video_path=str(upload_path), camera_id=camera_id,
         camera_name=camera_name, kpis_running=kpis_running,
     )
-    thinned_path = upload_path.with_name(f"{upload_path.stem}_thinned{upload_path.suffix}")
+    # always .mp4: thin_video writes an mp4v stream, which is malformed inside e.g. a .mkv container
+    thinned_path = upload_path.with_name(f"{upload_path.stem}_thinned.mp4")
     background_tasks.add_task(
         _thin_then_run_pipeline, job_id, str(upload_path), str(thinned_path), kpi_names_to_run
     )

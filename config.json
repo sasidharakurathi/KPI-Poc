@@ -543,17 +543,19 @@
         }
     },
     "AnprLprKPI": {
-        "enabled": false,
         "model_path": "app/models/anpr_lpr.pt",
-        "confidence": 0.3,
-        "aspect_ratio_min": 0.5,
-        "aspect_ratio_max": 7,
-        "min_plate_chars": 4,
-        "frame_skip": 2,
-        "infer_imgsz": 640
+        "vehicle_model_path": "app/models/yolo26m.pt",
+        "ocr_model": "cct-s-v2-global-model",
+        "ocr_device": "cpu",
+        "confidence": 0.45,
+        "vehicle_confidence": 0.25,
+        "infer_imgsz": 1920,
+        "frame_stride": 2,
+        "min_plate_width_px": 60,
+        "min_votes": 2,
+        "track_buffer": 150
     },
     "FireSmokeKPI": {
-        "enabled": true,
         "model_path": "app/models/fire-smoke.pt",
         "smoke_confidence": 0.28,
         "fire_confidence": 0.5,
@@ -567,7 +569,6 @@
         "confidence": 0.42
     },
     "MobileUsageKPI": {
-        "enabled": true,
         "pose_model_path": "app/models/yolo26m-pose.pt",
         "phone_model_path": "app/models/yolo26m.pt",
         "phone_confidence": 0.3,
@@ -594,7 +595,6 @@
         "phone_imgsz": 512
     },
     "PeopleCountKPI": {
-        "enabled": true,
         "model_path": "app/models/ppl-count-yolo26m.pt",
         "confidence": 0.35,
         "min_box_area": 800,
@@ -605,7 +605,6 @@
         "infer_imgsz": 640
     },
     "DensityOccupancyKPI": {
-        "enabled": false,
         "model_path": "app/models/density-occupancy.pt",
         "confidence": 0.35,
         "iou_threshold": 0.5,
@@ -619,7 +618,6 @@
         }
     },
     "SmokingKPI": {
-        "enabled": true,
         "person_model_path": "app/models/yolo26m.pt",
         "cigarette_model_path": "app/models/cigarette.pt",
         "person_confidence": 0.4,
@@ -632,7 +630,6 @@
         "person_imgsz": 512
     },
     "FloatingKPI": {
-        "enabled": false,
         "model_path": "app/models/floating.pt",
         "pose_model_path": "app/models/yolo26s-pose.pt",
         "confidence": 0.3,
@@ -640,19 +637,22 @@
         "alert_hold_seconds": 4.0
     },
     "PPEKPI": {
-        "enabled": true,
-        "model_path": "app/models/ppe.pt",
-        "pose_model_path": "app/models/yolo26s-pose.pt",
+        "model_path": "app/models/ppe_v7.pt",
         "confidence": 0.25,
         "margin": 0.15,
         "overlap_threshold": 0.3,
         "alarm_seconds": 2.0,
-        "alert_hold_seconds": 4.0,
-        "frame_stride": 2,
-        "infer_imgsz": 512
+        "sample_fps": 12.5,
+        "infer_imgsz": 960,
+        "refine_margin": 0.6,
+        "refine_imgsz": 640,
+        "refine_confidence": 0.15,
+        "smooth_window": 7,
+        "compliant_hold_frames": 10,
+        "track_lost_buffer": 210,
+        "track_match_threshold": 0.75
     },
     "FallingPoseKPI": {
-        "enabled": true,
         "pose_model_path": "app/models/yolo26m-pose.pt",
         "confidence": 0.3,
         "kp_conf": 0.3,
@@ -667,7 +667,6 @@
         "infer_imgsz": 640
     },
     "BoxCounterKPI": {
-        "enabled": false,
         "model_path": "app/models/carton-box-detection.pt",
         "confidence": 0.75,
         "frame_stride": 2,
@@ -675,13 +674,21 @@
         "infer_imgsz": 640
     },
     "SpeedTrackerKPI": {
-        "enabled": false,
-        "model_path": "app/models/vehicle-detection-speed.pt",
-        "confidence": 0.5,
-        "speed_limit_kmh": 25.0
+        "model_path": "app/models/yolo26m.pt",
+        "confidence": 0.15,
+        "infer_imgsz": 1920,
+        "frame_stride": 2,
+        "checked_dwell_seconds": 20.0,
+        "zone_persist_frames": 2,
+        "zone_miss_grace_frames": 45,
+        "track_buffer": 150,
+        "track_high_thresh": 0.25,
+        "track_low_thresh": 0.1,
+        "new_track_thresh": 0.25,
+        "track_match_thresh": 0.8,
+        "min_verdict_dwell_seconds": 1.5
     },
     "OccupancyDwellKPI": {
-        "enabled": false,
         "model_path": "app/models/yolo26m.pt",
         "confidence": 0.35,
         "iou_threshold": 0.5,
@@ -694,7 +701,6 @@
         "alert_cooldown_secs": 30.0
     },
     "StaffAbsenceKPI": {
-        "enabled": false,
         "model_path": "app/models/yolo26m.pt",
         "confidence": 0.35,
         "iou_threshold": 0.5,

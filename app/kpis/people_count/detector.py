@@ -15,6 +15,18 @@ _BATCH_SIZE = 4
 
 @register_kpi
 class PeopleCountKPI(BaseKPI):
+    """Reports how many people are in view right now, not a lifetime unique-
+    visitor tally. A cumulative "total ever seen" count needs stable track
+    IDs to dedup against, and ByteTrack fragments a track (new ID) on any
+    brief occlusion/confidence dip - each fragment then over-counted as a
+    "new" person (confirmed: 36/7/62 became 45/6/84 on the busiest test
+    clips once the tracker's low-confidence recovery was even partly
+    engaged). A live, per-frame occupancy count sidesteps that failure mode
+    entirely - it never needs to decide whether today's detection is the
+    same physical person as one from 10 seconds ago, only how many
+    qualifying boxes are on screen this instant. No alerts fired (never
+    called db.create_alert before this either).
+    """
     name         = "people_count"
     display_name = "People Count"
 
@@ -36,8 +48,8 @@ class PeopleCountKPI(BaseKPI):
         model_registry.reset_tracker(self.model)   # shared model instance may have stale tracker state
 
         self.track_seen: dict[int, int] = {}
-        self.unique_ids: set[int] = set()
-        self.alert_events = 0
+        self.current_active_count = 0
+        self.peak_active_count = 0
         self._frames_seen = 0
         self.batch: list[np.ndarray] = []
 
@@ -46,6 +58,7 @@ class PeopleCountKPI(BaseKPI):
             return
         boxes = results.boxes
         if boxes is None or boxes.id is None:
+            self.current_active_count = 0
             return
 
         track_ids  = boxes.id.int().cpu().tolist()
@@ -53,6 +66,7 @@ class PeopleCountKPI(BaseKPI):
         xyxy_list  = boxes.xyxy.int().cpu().tolist()
         confs      = boxes.conf.cpu().tolist()
 
+        active_now = 0
         for i in range(len(track_ids)):
             if cls_ids[i] != 0 or confs[i] < self.conf:
                 continue
@@ -66,14 +80,14 @@ class PeopleCountKPI(BaseKPI):
                 continue
 
             tid = track_ids[i]
-            if tid in self.unique_ids:
-                continue
             self.track_seen[tid] = self.track_seen.get(tid, 0) + 1
             if self.track_seen[tid] < self.min_confirm_frames:
                 continue
 
-            self.unique_ids.add(tid)
-            self.alert_events += 1
+            active_now += 1
+
+        self.current_active_count = active_now
+        self.peak_active_count = max(self.peak_active_count, active_now)
 
     def _flush_batch(self) -> None:
         if not self.batch:
@@ -99,8 +113,8 @@ class PeopleCountKPI(BaseKPI):
         self._flush_batch()
 
         return KPIResult(self.name, self.display_name, {
-            "alert_events":     self.alert_events,
-            "total_foot_traffic": len(self.unique_ids),
-            "total_frames":     self._frames_seen,
-            "device":           self.device,
+            "current_active_count": self.current_active_count,
+            "peak_active_count":    self.peak_active_count,
+            "total_frames":         self._frames_seen,
+            "device":               self.device,
         })
